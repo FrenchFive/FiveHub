@@ -6,6 +6,8 @@ scrpt_dir = os.path.dirname(os.path.abspath(__file__))
 folder_name = 'db/hub.db'
 database_path = os.path.join(scrpt_dir, folder_name)
 
+if not os.path.exists(os.path.dirname(database_path)):
+    os.makedirs(os.path.dirname(database_path))
 
 CONNECTION = sqlite3.connect(database_path)
 CURSOR = CONNECTION.cursor()
@@ -17,7 +19,6 @@ CREATE TABLE IF NOT EXISTS "ASSET" (
     PRIMARY KEY("id")
 );
 ''')
-
 
 def add_asset(name, project):
     id = str(uuid.uuid4())
