@@ -16,6 +16,7 @@ loaded_nodes = hou.hipFile.loadChildrenFromFile(edited_file_path)
 import hou
 
 def extract_file_paths_from_hip(file_path, extensions=(".abc", ".obj", ".fbx")):
+
     # Set Houdini to manual update mode
     hou.setUpdateMode(hou.updateMode.Manual)
     
@@ -34,6 +35,7 @@ def extract_file_paths_from_hip(file_path, extensions=(".abc", ".obj", ".fbx")):
                 value = parm.eval()
                 if isinstance(value, str) and any(value.endswith(ext) for ext in extensions):
                     file_paths.append(value)
+                    hou.session.getenv("HIP")
     
     # Set Houdini back to the normal update mode
     hou.setUpdateMode(hou.updateMode.AutoUpdate)
