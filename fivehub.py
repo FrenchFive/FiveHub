@@ -30,6 +30,13 @@ def add():
     #INTERFACE
     name, project = fiveinterface.addwindow()
 
+    #change node name to asset name
+    for i in range(len(nodes)):
+        if len(nodes) == 1:
+            node.setName(f"FH_{name}")
+        else:
+            node.setName(f"FH_{name}_{i}")
+
     #DATABASE
     id = fivedb.add_asset(name, project)
 
