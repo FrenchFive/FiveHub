@@ -72,6 +72,27 @@ def add():
     file_path = os.path.join(os.path.dirname(__file__), f"asset/{id}/{id}.py")
     with open(file_path, "w") as file:
         file.write(code)
+    
+    hou.ui.displayMessage("ADDED TO THE HUB")
 
 def load():
-    pass
+    assets = fivedb.get_assets()
+    print(assets)
+
+    '''
+    #INTERFACE
+    asset = fiveinterface.loadwindow()
+
+    #DATABASE
+    asset_data = fivedb.load_asset(asset)
+
+    # Load the code from the file
+    file_path = os.path.join(os.path.dirname(__file__), f"asset/{asset_data['id']}/{asset_data['id']}.py")
+    with open(file_path, "r") as file:
+        code = file.read()
+    
+    # Execute the code
+    exec(code)
+    
+    hou.ui.displayMessage("LOADED FROM THE HUB")
+    '''

@@ -34,6 +34,7 @@ class AddWindow(QDialog):
 
     def get_inputs(self):
         return self.name, self.project
+    
 
 def addwindow():
     dialog = AddWindow(hou.qt.mainWindow())
