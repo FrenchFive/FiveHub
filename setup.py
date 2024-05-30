@@ -1,6 +1,6 @@
-#get the current script path
 import os
 import sys
+import subprocess
 
 scrpath = os.path.dirname(os.path.realpath(sys.argv[0]))
 userpath = os.path.expanduser("~")
@@ -11,15 +11,14 @@ houdinipath = os.path.join(userpath, f"Documents\houdini{version}")
 
 envfile = os.path.join(houdinipath, "houdini.env")
 
+
 if os.path.exists(envfile):
-    #check if the lines exists in the file
     with open(envfile, "r") as f:
         lines = f.readlines()
-        if not any("HOUDINI_TOOLBAR_PATH" in line for line in lines):
-            #append to the houdini file path the toolbar path
+        if not any("#FIVEHUB INIT" in line for line in lines):
             with open(envfile, "a") as f:
+                f.write('\n')
+                f.write('\n')
+                f.write(f'#FIVEHUB INIT \n')
                 f.write(f'HOUDINI_TOOLBAR_PATH = {toolbarpath};& \n')
-        if not any("PYTHONPATH" in line for line in lines):
-            #append to the houdini file path the toolbar path
-            with open(envfile, "a") as f:
-                f.write(f'PYTHONPATH = {scrpath};& \n')
+                f.write(f'PYTHONPATH=%PYTHONPATH%;{scrpath}\n')
