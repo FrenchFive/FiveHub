@@ -1,10 +1,16 @@
 import hou
 import os
+import fivedb
+import fiveinterface
 
 def reload():
     import fivehub
+    import fivedb
+    import fiveinterface
     import importlib
     importlib.reload(fivehub)
+    importlib.reload(fivedb)
+    importlib.reload(fiveinterface)
 
 def add():
     # Get selected nodes
@@ -12,9 +18,21 @@ def add():
     
     # Check if nodes are selected
     if not nodes:
-        hou.ui.displayMessage("Please select nodes")
+        hou.ui.displayMessage("PLEASE SELECT A NODE")
         return
     
+    #check if the selected node is a geo node
+    for node in nodes:
+        if not node.type().name() == "geo":
+            hou.ui.displayMessage("PLEASE SELECT A GEO NODE")
+            return
+    
+    #INTERFACE
+    name, project = fiveinterface.addwindow()
+
+    #DATABASE
+    id = fivedb.add_asset(name, project)
+
     # Generate code for each selected node and collect connections
     code = ""
     connections = []
@@ -39,8 +57,12 @@ def add():
     for input_node_name, node_name, input_index in connections:
         code += "hou.node('/obj/%s').setInput(%d, hou.node('/obj/%s'))\n" % (node_name, input_index, input_node_name)
 
+    #check if the asset folder exists
+    if not os.path.exists(os.path.join(os.path.dirname(__file__), f"asset/{id}")):
+        os.makedirs(os.path.join(os.path.dirname(__file__), f"asset/{id}"))
+    
     # Save the code to a file
-    file_path = os.path.join(os.path.dirname(__file__), "test/test.py")
+    file_path = os.path.join(os.path.dirname(__file__), f"asset/{id}/{id}.py")
     with open(file_path, "w") as file:
         file.write(code)
 
