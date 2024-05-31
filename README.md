@@ -80,8 +80,3 @@ DEFAULT :: ""19.5""
 - [ ] FUZZY FIND ??
 - [ ] CATEGORIES
 - [ ] CLOSING WINDOW HANDLING
-
-  - [ ] TAKE AN IMAGE
-  - [ ] ADD TO DATABASE
-3. EASY TO SETUP ??? 
-  - [ ] SETUP.EXE ?? 
