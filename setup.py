@@ -1,6 +1,5 @@
 import os
 import sys
-import subprocess
 
 scrpath = os.path.dirname(os.path.realpath(sys.argv[0]))
 userpath = os.path.expanduser("~")
@@ -31,6 +30,6 @@ if os.path.exists(envfile):
             with open(envfile, "a") as f:
                 f.write('\n')
                 f.write('\n')
-                f.write(f'#FIVEHUB INIT \n')
+                f.write(f'#FIVEHUB INIT\n')
                 f.write(f'HOUDINI_TOOLBAR_PATH = {toolbarpath};& \n')
                 f.write(f'PYTHONPATH=%PYTHONPATH%;{scrpath}\n')
