@@ -1,5 +1,8 @@
 import hou
 import os
+import re
+import shutil
+
 import fivedb
 import fiveinterface
 
@@ -82,12 +85,34 @@ def add():
     with open(file_path, "w") as file:
         file.write(code)
     
+    #REWRITE THE CODE
+    with open(file_path, "r") as file:
+        codes = file.readlines()
+    for code in codes:
+        pattern = r"[a-zA-Z]:/(?:[^\\/:*?\"<>|\r\n]+/)*[^\\/:*?\"<>|\r\n]*"
+        match = re.search(pattern, code)
+        if match:
+            file = match.group().split("/")[-1]
+            new_path = f"{os.path.dirname(__file__)}/asset/{id}/data/{file}"
+            #check if the folder exists
+            if not os.path.exists(os.path.join(os.path.dirname(__file__), f"asset/{id}/data")):
+                os.makedirs(os.path.join(os.path.dirname(__file__), f"asset/{id}/data"))
+            # Copy the file to the new location
+            shutil.copy(match.group(), new_path)
+            index = codes.index(code)
+            code = code.replace(match.group(), new_path)
+            print(code)
+            #replace the path with the new path
+            codes[index] = code
+    with open(file_path, "w") as file:
+        file.writelines(codes)
+    
     #TAKE A PICTURE
     frame = hou.frame()
     desktop = hou.ui.curDesktop().name()
     panetab = hou.ui.curDesktop().paneTabOfType(hou.paneTabType.SceneViewer).name()
     camera_path = desktop + '.' + panetab + '.' + 'world.' + hou.ui.curDesktop().paneTabOfType(hou.paneTabType.SceneViewer).curViewport().name()
-    filename = os.path.join(os.path.dirname(__file__), f"asset/{id}/{id}.jpg")
+    filename = os.path.join(os.path.dirname(__file__), f"asset/{id}/img.jpg")
     hou.hscript("viewwrite -f %d %d %s '%s'" % (frame, frame, camera_path, filename))
     
     hou.ui.displayMessage("SAVED TO THE HUB")
