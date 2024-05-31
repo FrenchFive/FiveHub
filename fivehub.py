@@ -37,6 +37,12 @@ def add():
         else:
             node.setName(f"FH_{name}_{i}")
 
+    #RESETTING VIEWPORT
+    scene_viewer = hou.ui.paneTabOfType(hou.paneTabType.SceneViewer)
+    viewport = scene_viewer.curViewport()
+    viewport.home()
+    viewport.frameSelected()
+
     #DATABASE
     id = fivedb.add_asset(name, project)
 
@@ -72,6 +78,14 @@ def add():
     file_path = os.path.join(os.path.dirname(__file__), f"asset/{id}/{id}.py")
     with open(file_path, "w") as file:
         file.write(code)
+    
+    #TAKE A PICTURE
+    frame = hou.frame()
+    desktop = hou.ui.curDesktop().name()
+    panetab = hou.ui.curDesktop().paneTabOfType(hou.paneTabType.SceneViewer).name()
+    camera_path = desktop + '.' + panetab + '.' + 'world.' + hou.ui.curDesktop().paneTabOfType(hou.paneTabType.SceneViewer).curViewport().name()
+    filename = os.path.join(os.path.dirname(__file__), f"asset/{id}/{id}.jpg")
+    hou.hscript("viewwrite -f %d %d %s '%s'" % (frame, frame, camera_path, filename))
     
     hou.ui.displayMessage("ADDED TO THE HUB")
 
