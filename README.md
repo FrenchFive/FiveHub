@@ -79,4 +79,5 @@ DEFAULT :: ""19.5""
 - [ ] REPATHING AND MOVING EXTERNAL FILES
 - [ ] FUZZY FIND ??
 - [ ] CATEGORIES
+- [ ] Filename more readable
 - [x] CLOSING WINDOW HANDLING
