@@ -87,7 +87,7 @@ def add():
     filename = os.path.join(os.path.dirname(__file__), f"asset/{id}/{id}.jpg")
     hou.hscript("viewwrite -f %d %d %s '%s'" % (frame, frame, camera_path, filename))
     
-    hou.ui.displayMessage("ADDED TO THE HUB")
+    hou.ui.displayMessage("SAVED TO THE HUB")
 
 def load():
     assets = fivedb.get_assets()
