@@ -77,17 +77,12 @@ def add():
 
 def load():
     assets = fivedb.get_assets()
-    print(assets)
-
-    '''
+    
     #INTERFACE
-    asset = fiveinterface.loadwindow()
-
-    #DATABASE
-    asset_data = fivedb.load_asset(asset)
+    id = fiveinterface.loadwindow(assets)
 
     # Load the code from the file
-    file_path = os.path.join(os.path.dirname(__file__), f"asset/{asset_data['id']}/{asset_data['id']}.py")
+    file_path = os.path.join(os.path.dirname(__file__), f"asset/{id}/{id}.py")
     with open(file_path, "r") as file:
         code = file.read()
     
@@ -95,4 +90,3 @@ def load():
     exec(code)
     
     hou.ui.displayMessage("LOADED FROM THE HUB")
-    '''

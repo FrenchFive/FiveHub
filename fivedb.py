@@ -33,5 +33,3 @@ def get_projects():
 def get_assets():
     CURSOR.execute("SELECT * FROM ASSET")
     return CURSOR.fetchall()
-
-add_asset("Duck", "Test")
