@@ -1,7 +1,7 @@
 import os
 import sys
 
-scrpath = os.path.dirname(os.path.realpath(sys.argv[0]))
+scrpath = os.path.dirname(os.path.realpath(sys.argv[0])).replace("\\", "/")
 userpath = os.path.expanduser("~")
 version = "19.5"
 
