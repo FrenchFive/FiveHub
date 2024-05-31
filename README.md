@@ -60,8 +60,19 @@ git clone https://github.com/FrenchFive/FiveHub.git
 ```
 
 ### 5. CHOOSE HOUDINI VERSION :
+
+TO MATCH YOUR HOUDINI VERSION IT IS IMPORTANT TO NOTE THE HOUDINI VERSION IN THE ``` setup.py ```
+
+DEFAULT :: ""19.5""
+
+![image](https://github.com/FrenchFive/FiveHub/assets/105274118/f73e1004-619b-4816-9431-808ddd26943a)
+
+
+
 ### 6. RUN SETUP.PY
-### 7. LAUNCH HOUDINI :
+
+
+### 7. LAUNCH HOUDINI 
 
 ------
 ## UPCOMING : 
