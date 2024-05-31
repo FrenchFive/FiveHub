@@ -24,23 +24,52 @@ HOUDINI CUSTOM DATABASE OF ASSET
 
 ------
 
+## SETUP :
+
+### 1. CHOOSE YOUR DIRECTORY :
+
+DIRECTORY IS IMPORTANT
+
+This directory will hold :
+  - Code
+  - Toolbar
+  - Assets
+  - Database
+
+### 2. OPEN CMD FROM DIRECTORY :
+
+You can achieve this either by traveling through your **File Explorer** 
+```
+%windir%\explorer.exe
+```
+
+Right Clicking the folder :: **"Open in Terminal"**
+
+OR 
+
+Opening your CMD : 
+```
+cd C:/Users/.../your-path
+```
+
+### 3. GIT CLONE :
+
+Cloning the project in your CMD :
+```
+git clone https://github.com/FrenchFive/FiveHub.git
+```
+
+### 5. CHOOSE HOUDINI VERSION :
+### 6. RUN SETUP.PY
+### 7. LAUNCH HOUDINI :
+
+------
 ## UPCOMING : 
 - [ ] REPATHING AND MOVING EXTERNAL FILES
 - [ ] FUZZY FIND ??
 - [ ] CATEGORIES
 - [ ] CLOSING WINDOW HANDLING
 
-1. LOAD OBJECTS
-  - [x] INTERFACE IN QT
-    - [x] CLICK AND LOAD
-    - [x] SEARCH
-      - [ ] FUZZY FINDING ? 
-    - [x] DISPLAY
-      - [x] Names
-      - [x] Images
-    - [ ] CATEGORIES ???
-2. ADD OBJECTS
-  - [x] SELECT AND ADD
   - [ ] TAKE AN IMAGE
   - [ ] ADD TO DATABASE
 3. EASY TO SETUP ??? 
