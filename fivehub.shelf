@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shelfDocument>
+  <!-- This file contains definitions of shelves, toolbars, and tools.
+ It should not be hand-edited when it is being used by the application.
+ Note, that two definitions of the same element are not allowed in
+ a single file. -->
+
+  <toolshelf name="FIVE HUB" label="FIVE HUB">
+    <memberTool name="SAVE"/>
+    <memberTool name="HUB"/>
+    <memberTool name="SCRIPT"/>
+  </toolshelf>
+
+  <tool name="SAVE" label="SAVE" icon="{path}/imgs/floppy.png">
+    <script scriptType="python"><![CDATA[import fivehub
+fivehub.add()]]></script>
+  </tool>
+
+  <tool name="HUB" label="HUB" icon="{path}/imgs/folder.png">
+    <script scriptType="python"><![CDATA[import fivehub
+fivehub.load()]]></script>
+  </tool>
+
+  <tool name="SCRIPT" label="SCRIPT" icon="{path}/imgs/whale.png">
+    <script scriptType="python"><![CDATA[import fivehub
+fivehub.reload()]]></script>
+  </tool>
+</shelfDocument>
