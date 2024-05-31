@@ -3,6 +3,7 @@ from PySide2.QtWidgets import QDialog, QPushButton, QVBoxLayout, QWidget, QLineE
 from PySide2.QtCore import Qt, QRect, QSize, QPoint
 from PySide2 import QtGui
 from functools import partial
+import os
 
 
 class AddWindow(QDialog):
@@ -159,7 +160,7 @@ class LoadWindow(QDialog):
             name = asset[1]
             button = QToolButton(self.scroll_widget)
             button.setFixedSize(self.button_size)  # Set fixed size for button
-            button.setIcon(QtGui.QIcon("G:/Chan/Documents/.GITHUB/FiveHub/test/asset/duck.gif"))  # Set the icon
+            button.setIcon(QtGui.QIcon(f"{os.path.dirname(__file__)}/asset/{id}/{id}.jpg"))  # Set the icon
             button.setIconSize(QSize(80, 80))  # Set the icon size
             button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)  # Set the text under the icon
             button.setText(name)  # Set the text
