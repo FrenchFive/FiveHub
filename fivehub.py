@@ -30,6 +30,9 @@ def add():
     #INTERFACE
     name, project = fiveinterface.addwindow()
 
+    if name == None and project == None:
+        return
+
     #change node name to asset name
     for i in range(len(nodes)):
         if len(nodes) == 1:
@@ -94,6 +97,9 @@ def load():
     
     #INTERFACE
     id = fiveinterface.loadwindow(assets)
+
+    if id == None:
+        return
 
     # Load the code from the file
     file_path = os.path.join(os.path.dirname(__file__), f"asset/{id}/{id}.py")

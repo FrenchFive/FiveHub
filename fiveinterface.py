@@ -41,8 +41,11 @@ class AddWindow(QDialog):
     
 def addwindow():
     dialog = AddWindow(hou.qt.mainWindow())
-    dialog.exec_()
-    return dialog.get_inputs()
+    result = dialog.exec_()
+    if result == QDialog.Accepted:
+        return dialog.get_inputs()
+    else:
+        return None, None
 
 class QWrapLayout(QLayout):
     def __init__(self, parent=None, margin=0, spacing=-1):
@@ -198,5 +201,8 @@ class LoadWindow(QDialog):
 
 def loadwindow(assets):
     dialog = LoadWindow(assets, hou.qt.mainWindow())
-    dialog.exec_()
-    return dialog.get_selected_id()
+    result = dialog.exec_()
+    if result == QDialog.Accepted:
+        return dialog.get_selected_id()
+    else:
+        return None
