@@ -22,14 +22,16 @@ with open(os.path.join(toolbarpath, "fivehub.shelf"), "w") as f:
         for line in lines:
             f.write(line.replace("{path}", scrpath))
 
+listofcode = ["#FIVEHUB INIT", f'HOUDINI_TOOLBAR_PATH = {toolbarpath};&', f'PYTHONPATH=%PYTHONPATH%;{scrpath}']
 
 if os.path.exists(envfile):
     with open(envfile, "r") as f:
         lines = f.readlines()
-        if not any("#FIVEHUB INIT" in line for line in lines):
-            with open(envfile, "a") as f:
-                f.write('\n')
-                f.write('\n')
-                f.write(f'#FIVEHUB INIT\n')
-                f.write(f'HOUDINI_TOOLBAR_PATH = {toolbarpath};& \n')
-                f.write(f'PYTHONPATH=%PYTHONPATH%;{scrpath}\n')
+        #check if the code is already in the file
+        for line in listofcode:
+            if line in lines:
+                listofcode.remove(line)
+        #if not, append it to the file
+    with open(envfile, "a") as f:
+        for line in listofcode:
+            f.write(line + "\n")
