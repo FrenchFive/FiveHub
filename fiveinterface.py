@@ -1,5 +1,5 @@
 import hou
-from PySide2.QtWidgets import QDialog, QPushButton, QVBoxLayout, QWidget, QLineEdit, QLabel, QScrollArea, QToolButton, QLayout
+from PySide2.QtWidgets import QDialog, QPushButton, QVBoxLayout, QWidget, QLineEdit, QLabel, QScrollArea, QToolButton, QLayout, QComboBox
 from PySide2.QtCore import Qt, QRect, QSize, QPoint
 from PySide2 import QtGui
 from functools import partial
@@ -131,7 +131,7 @@ class QWrapLayout(QLayout):
         return y + lineHeight - rect.y()
 
 class LoadWindow(QDialog):
-    def __init__(self, assets, parent=None, button_size=QSize(100, 100)):
+    def __init__(self, assets, parameters, parent=None, button_size=QSize(100, 100)):
         super().__init__(parent)
 
         self.button_size = button_size
@@ -143,6 +143,14 @@ class LoadWindow(QDialog):
         self.search_bar = QLineEdit(self)
         self.search_bar.setPlaceholderText("Search...")
         layout.addWidget(self.search_bar)
+
+        # Create drop-down menu
+        self.dropdown_menu = QComboBox(self)
+        self.dropdown_menu.addItem("-")
+        for parameter in parameters:
+            self.dropdown_menu.addItem(parameter)
+        layout.addWidget(self.dropdown_menu)
+
 
         self.setWindowTitle('Load Window')
         self.resize(400, 500)
@@ -162,6 +170,7 @@ class LoadWindow(QDialog):
             id = asset[0]
             name = asset[1]
             button = QToolButton(self.scroll_widget)
+            button.project = asset[2]  # Add this line
             button.setFixedSize(self.button_size)  # Set fixed size for button
             button.setIcon(QtGui.QIcon(f"{os.path.dirname(__file__)}/asset/{id}/img.jpg"))  # Set the icon
             button.setIconSize(QSize(80, 80))  # Set the icon size
@@ -177,8 +186,12 @@ class LoadWindow(QDialog):
         # Connect the search bar to the filter function
         self.search_bar.textChanged.connect(self.filter_buttons)
 
+        # Connect the drop-down menu to the filter function
+        self.dropdown_menu.currentIndexChanged.connect(self.filter_buttons)  # Add this line
+
     def filter_buttons(self):
         search_text = self.search_bar.text().lower()
+        selected_project = self.dropdown_menu.currentText().lower()
 
         # Hide all buttons and remove them from the layout
         while self.wrap_layout.count():
@@ -186,12 +199,12 @@ class LoadWindow(QDialog):
             asset.widget().hide()
 
         # Filter buttons, add them to the layout, and show them
-        for button in self.buttons:
+        for i, button in enumerate(self.buttons):
             button_text = button.text().lower()
-            if search_text in button_text:
+            if (search_text in button_text and (selected_project == "-" or selected_project == button.project.lower())):
                 self.wrap_layout.addWidget(button)
                 button.show()
-
+    
     def on_button_clicked(self, id):
         self.selected_id = id
         self.accept()
@@ -199,8 +212,8 @@ class LoadWindow(QDialog):
     def get_selected_id(self):
         return self.selected_id
 
-def loadwindow(assets):
-    dialog = LoadWindow(assets, hou.qt.mainWindow())
+def loadwindow(assets, parameters):
+    dialog = LoadWindow(assets, parameters, hou.qt.mainWindow())
     result = dialog.exec_()
     if result == QDialog.Accepted:
         return dialog.get_selected_id()

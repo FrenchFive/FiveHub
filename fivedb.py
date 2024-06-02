@@ -28,7 +28,9 @@ def add_asset(name, project):
 
 def get_projects():
     CURSOR.execute("SELECT DISTINCT project FROM ASSET")
-    return CURSOR.fetchall()
+    projects = CURSOR.fetchall()
+    listpro = [item[0] for item in projects]
+    return listpro
 
 def get_assets():
     CURSOR.execute("SELECT * FROM ASSET")
