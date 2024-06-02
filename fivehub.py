@@ -42,12 +42,28 @@ def add():
             node.setName(f"FH_{name}")
         else:
             node.setName(f"FH_{name}_{i}")
+    
+    #Hide all other nodes except the selected nodes
+    for node in hou.node("/obj").children():
+        if node not in nodes:
+            # set node display flag to false
+            node.setDisplayFlag(False)
 
     #RESETTING VIEWPORT
     scene_viewer = hou.ui.paneTabOfType(hou.paneTabType.SceneViewer)
     viewport = scene_viewer.curViewport()
     viewport.home()
     viewport.frameSelected()
+
+    #SET VIEWPORT TO SMOOTH SHADED
+    settings = viewport.settings()
+    scnset = settings.displaySet(hou.displaySetType.SceneObject)
+    scnset.setShadingModeLocked(False)
+    scnset.setShadedMode(hou.glShadingType.Smooth)
+
+    #SET VIEWPORT LIGHT TO HEADLIGHT
+    settings.setLighting(hou.viewportLighting.Headlight)
+
 
     #DATABASE
     id = fivedb.add_asset(name, project)
