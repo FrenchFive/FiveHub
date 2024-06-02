@@ -118,9 +118,9 @@ def add():
 
 def load():
     assets = fivedb.get_assets()
-    
+    parameters = fivedb.get_projects()
     #INTERFACE
-    id = fiveinterface.loadwindow(assets)
+    id = fiveinterface.loadwindow(assets, parameters)
 
     if id == None:
         return
