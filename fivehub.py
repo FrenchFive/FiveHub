@@ -101,7 +101,6 @@ def add():
             shutil.copy(match.group(), new_path)
             index = codes.index(code)
             code = code.replace(match.group(), new_path)
-            print(code)
             #replace the path with the new path
             codes[index] = code
     with open(file_path, "w") as file:

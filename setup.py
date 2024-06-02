@@ -5,6 +5,12 @@ scrpath = os.path.dirname(os.path.realpath(sys.argv[0])).replace("\\", "/")
 userpath = os.path.expanduser("~")
 version = "19.5"
 
+
+userinput = input("Do you want to change the version ? (y/n) ")
+if userinput == "y":
+    version = input("Enter the version: ")
+    print(f"Version changed to {version}")
+
 toolbarpath = os.path.join(scrpath, "toolbar")
 houdinipath = os.path.join(userpath, f"Documents\houdini{version}")
 
