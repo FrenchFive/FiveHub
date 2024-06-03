@@ -109,7 +109,8 @@ def add():
         match = re.search(pattern, code)
         if match:
             file = match.group().split("/")[-1]
-            new_path = f"{os.path.dirname(__file__)}/asset/{id}/data/{file}"
+            path = os.path.dirname(__file__).replace('\\', '/')
+            new_path = f"{path}/asset/{id}/data/{file}"
             #check if the folder exists
             if not os.path.exists(os.path.join(os.path.dirname(__file__), f"asset/{id}/data")):
                 os.makedirs(os.path.join(os.path.dirname(__file__), f"asset/{id}/data"))
