@@ -28,16 +28,21 @@ with open(os.path.join(toolbarpath, "fivehub.shelf"), "w") as f:
         for line in lines:
             f.write(line.replace("{path}", scrpath))
 
-listofcode = ["#FIVEHUB INIT", f'HOUDINI_TOOLBAR_PATH = {toolbarpath};&', f'PYTHONPATH=%PYTHONPATH%;{scrpath}']
+userinput = input("Do you want to install locally ? (y/n) ")
+if userinput == "y":
+    listofcode = ["#FIVEHUB INIT", f'HOUDINI_TOOLBAR_PATH = {toolbarpath};&', f'PYTHONPATH=%PYTHONPATH%;{scrpath}']
 
-if os.path.exists(envfile):
-    with open(envfile, "r") as f:
-        lines = f.readlines()
-        #check if the code is already in the file
-        for line in listofcode:
-            if line in lines:
-                listofcode.remove(line)
-        #if not, append it to the file
-    with open(envfile, "a") as f:
-        for line in listofcode:
-            f.write(line + "\n")
+    if os.path.exists(envfile):
+        with open(envfile, "r") as f:
+            lines = f.readlines()
+            #check if the code is already in the file
+            for line in listofcode:
+                if line in lines:
+                    listofcode.remove(line)
+            #if not, append it to the file
+        with open(envfile, "a") as f:
+            for line in listofcode:
+                f.write(line + "\n")
+
+else:
+    print('Okayyyyyy...')
