@@ -3,8 +3,8 @@ HOUDINI CUSTOM DATABASE OF ASSET
 
 ## SUMMARY :
 - [FEATURES](#features-)
-- [SETUP](#SETUP)
-- [UPCOMING](#UPCOMING)
+- [SETUP](#setup-)
+- [UPCOMING](#upcoming-)
 
 ## FEATURES :
 ### 1. SAVE TO HUB
