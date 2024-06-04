@@ -2,9 +2,9 @@
 HOUDINI CUSTOM DATABASE OF ASSET 
 
 ## SUMMARY :
-- [FEATURES](#features-)
-- [SETUP](#setup-)
-- [UPCOMING](#upcoming-)
+- [FEATURES](#features-) <sub>What FiveHub is able to do</sub>
+- [SETUP](#setup-) <sub>How to install FiveHub</sub>
+- [UPCOMING](#upcoming-) <sub>What is in work</sub>
 
 ## FEATURES :
 ### 1. SAVE TO HUB
