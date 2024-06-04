@@ -75,6 +75,24 @@ DEFAULT :: ""19.5""
 
 ### 6. RUN SETUP.PY
 
+Answer to setup Questions :
+```
+Do you want to change the version ? (y/n)
+```
+<sub>This will allow FiveHub to determine where is located your Houdini Env Folder.</sub>
+- yes :
+  - Input a custom version : 20.0 ( no needs of the last dot 19.5 ~~.605~~ )
+- no :
+  - Use the default version `19.5`
+
+```
+Do you want to install locally ? (y/n)
+```
+<sub>This will allow FiveHub to add lines to your .env File, This process will add the Toolbar folder and the Python Script in the list of folders Houdini needs to check during the launch</sub>
+- yes :
+  - Will add the necessary lines to your local `.env` file.
+- no :
+  - Will **NOT** add the necessary lines to your local `.env` file.
 
 ### 7. LAUNCH HOUDINI 
 
