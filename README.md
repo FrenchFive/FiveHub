@@ -1,6 +1,11 @@
 # FiveHub
 HOUDINI CUSTOM DATABASE OF ASSET 
 
+## SUMMARY :
+- [FEATURES](./FEATURES)
+- [SETUP](./SETUP)
+- [UPCOMING](./UPCOMING)
+
 ## FEATURES :
 ### 1. SAVE TO HUB
   - **SELECT AND CLICK**
@@ -97,7 +102,7 @@ Do you want to install locally ? (y/n)
 > [!WARNING]
 > Not allowing FiveHub to change Env Variable may lead to FiveHub to not be found or recognized by Houdini. 
 
-Recommened answer are : yes / yes 
+Recommened answer are : **`no`** / **`yes`**
 
 ### 7. LAUNCH HOUDINI 
 
