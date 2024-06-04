@@ -97,6 +97,8 @@ Do you want to install locally ? (y/n)
 > [!WARNING]
 > Not allowing FiveHub to change Env Variable may lead to FiveHub to not be found or recognized by Houdini. 
 
+Recommened answer are : yes / yes 
+
 ### 7. LAUNCH HOUDINI 
 
 ------
