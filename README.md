@@ -77,8 +77,10 @@ TO MATCH YOUR HOUDINI VERSION IT IS IMPORTANT TO NOTE THE HOUDINI VERSION IN THE
 
 DEFAULT :: ""19.5""
 
-![image](https://github.com/FrenchFive/FiveHub/assets/105274118/f73e1004-619b-4816-9431-808ddd26943a)
+![CODE](https://github.com/FrenchFive/FiveHub/assets/105274118/f73e1004-619b-4816-9431-808ddd26943a)
 
+
+![HOUDINI_VERSION](https://github.com/FrenchFive/FiveHub/assets/105274118/be1633d4-633c-49ea-8c53-09f8d04d8875)
 
 
 ### 6. RUN SETUP.PY
