@@ -15,7 +15,6 @@ HOUDINI CUSTOM DATABASE OF ASSET
     - Automatic Python Formating
       - from node to code
     - Renaming Geo to Name Format
-      - FH_ASSETNAME => FH = Five Hub
   - **IMAGE CAPTURE**
     - Viewport Resetting
       - Using User Current Viewport
@@ -32,7 +31,7 @@ HOUDINI CUSTOM DATABASE OF ASSET
     - Repathing in the python file any path to the FiveHub directory
     
 ### 2. LOAD FROM HUB
-  - Sql Request to the Database
+  - SQL Request to the Database
   - QT Interface
     - Grid Layout based on the window size
     - Custom Warp Layout
