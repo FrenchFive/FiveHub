@@ -13,7 +13,7 @@ HOUDINI CUSTOM DATABASE OF ASSET
 ### 1. SAVE TO HUB
   - **SELECT AND CLICK**
     - Automatic Python Formating
-      - from node to code
+      - From node to code
     - Renaming Geo to Name Format
   - **IMAGE CAPTURE**
     - Viewport Resetting
