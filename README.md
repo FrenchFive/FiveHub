@@ -12,27 +12,33 @@ HOUDINI CUSTOM DATABASE OF ASSET
 ## FEATURES :
 ### 1. SAVE TO HUB
   - **SELECT AND CLICK**
-    - AUTOMATIC PYTHON FORMATING
-    - RENAMING GEO TO ASSET NAME
+    - Automatic Python Formating
+      - from node to code
+    - Renaming Geo to Name Format
+      - FH_ASSETNAME => FH = Five Hub
   - **IMAGE CAPTURE**
-    - VIEWPORT RESETTING
-      - SELECT CURRENT VIEWPORT
-      - RESETTING FRAME
-      - FRAMING SELECTED OBJECT
-    - VIEWPORT CAPTURE
+    - Viewport Resetting
+      - Using User Current Viewport
+      - Default Camera Reset
+      - Hiding any other object in the scene that is not selected
+      - Framing aroung selected object
+      - Setting Lighting to be Headlight
+      - Setting Viewport to be Smooth with no Wireframe
+    - Viewport Capture
   - **DATABASE ENTRY**
+    - Creation of a unique ID using UUID 4
   - **AUTOMATIC FILE REPATHING**
-    - MOVING FILE TO THE ASSET FOLDER
-    - REPATHING THE PYTHON FILES PATH
+    - Moving File mentionned in the nodes into the FiveHub directory
+    - Repathing in the python file any path to the FiveHub directory
     
 ### 2. LOAD FROM HUB
-  - SQL REQUEST TO THE DB
-  - QT INTERFACE
-    - BUTTON PER DB ENTRY
-    - GRID LAYOUT BASED ON WINDOW SCALE
-    - CUSTOM WRAP LAYOUT
-  - PYTHON EXECUTION
-  - CATEGORIES SEPARATION
+  - Sql Request to the Database
+  - QT Interface
+    - Grid Layout based on the window size
+    - Custom Warp Layout
+    - Categories Segmentation
+    - Each Asset has a button created linked to its image
+  - Python Execution of the formatted code
 
 ------
 
