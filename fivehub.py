@@ -6,6 +6,8 @@ import shutil
 import fivedb
 import fiveinterface
 
+import uuid
+
 def reload():
     import fivehub
     import fivedb
@@ -114,6 +116,12 @@ def add():
             #check if the folder exists
             if not os.path.exists(os.path.join(os.path.dirname(__file__), f"asset/{id}/data")):
                 os.makedirs(os.path.join(os.path.dirname(__file__), f"asset/{id}/data"))
+            #check if the file exists
+            while os.path.exists(new_path):
+                id = uuid.uuid4().hex
+                new_file_name = f"{file.split('.')[0]}_{id}.{file.split('.')[1]}"
+                #rename the file
+                new_path = f"{path}/asset/{id}/data/{new_file_name}"
             # Copy the file to the new location
             shutil.copy(match.group(), new_path)
             index = codes.index(code)
