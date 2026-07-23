@@ -122,7 +122,29 @@ CREATE TABLE IF NOT EXISTS dependency (
     created_at  TEXT NOT NULL,
     UNIQUE (task_id, src_task_id, src_format, src_name)
 );
+
+CREATE TABLE IF NOT EXISTS sync_state (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL DEFAULT ''
+);
 """
+
+# Tables mirrored as JSON record sidecars (the durable source of truth the
+# local cache database can be rebuilt from). Presence and jobs are
+# machine/site-transient and deliberately excluded.
+RECORD_TABLES = {
+    "entity": ("id", "kind", "name", "sequence", "frame_start", "frame_end",
+               "fps", "res_x", "res_y", "deleted_at", "created_at"),
+    "task": ("id", "entity_id", "name", "deleted_at", "created_at"),
+    "scene": ("id", "task_id", "version", "file", "notes", "user", "status",
+              "deleted_at", "created_at"),
+    "publish": ("id", "task_id", "name", "format", "variant", "version",
+                "passed", "errors", "warnings", "path", "report_path",
+                "thumbnail", "comment", "user", "status", "deleted_at",
+                "created_at"),
+    "dependency": ("id", "task_id", "src_task_id", "src_format", "src_name",
+                   "src_version", "user", "created_at"),
+}
 
 # Columns added since schema v1, used to migrate old databases in place.
 _V2_NEW_COLUMNS = {
@@ -427,17 +449,19 @@ class ProjectDB:
     def record_blocked_publish(self, task_id, name, format_name, variant, report,
                                report_path="", comment="", user=""):
         """A publish attempt that failed validation: no version, logged."""
+        row_id = str(uuid.uuid4())
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO publish (id, task_id, name, format, variant, version,"
                 " passed, errors, warnings, report_path, comment, user, created_at)"
                 " VALUES (?, ?, ?, ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?)",
                 (
-                    str(uuid.uuid4()), task_id, name, format_name, variant,
+                    row_id, task_id, name, format_name, variant,
                     report.error_count, report.warning_count, report_path,
                     comment or "", user or "", utc_now(),
                 ),
             )
+        return row_id
 
     def list_publishes(self, task_id):
         with self._connect() as conn:
@@ -683,6 +707,12 @@ class ProjectDB:
                 (str(uuid.uuid4()), task_id, src_task_id, src_format, src_name,
                  src_version, user, utc_now()),
             )
+            row = conn.execute(
+                "SELECT id FROM dependency WHERE task_id = ? AND src_task_id = ?"
+                " AND src_format = ? AND src_name = ?",
+                (task_id, src_task_id, src_format, src_name),
+            ).fetchone()
+            return row["id"] if row else None
 
     def dependencies_of(self, task_id):
         """What this task uses, with source context and the latest version."""
@@ -714,6 +744,64 @@ class ProjectDB:
         """
         with self._connect() as conn:
             return [dict(row) for row in conn.execute(query, (task_id,)).fetchall()]
+
+    # -- record sync (database as a rebuildable cache) -------------------
+
+    def get_row(self, table, row_id):
+        if table not in RECORD_TABLES:
+            raise ValueError("unknown record table %r" % table)
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM %s WHERE id = ?" % table, (row_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def upsert_record(self, table, row):
+        """Apply one record sidecar. Returns 'inserted' | 'updated' |
+        'conflict' (a *different* record already owns a unique slot, e.g.
+        two artists claimed the same version offline)."""
+        columns = RECORD_TABLES.get(table)
+        if columns is None:
+            raise ValueError("unknown record table %r" % table)
+        values = tuple(row.get(column) for column in columns)
+        with self._connect() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM %s WHERE id = ?" % table, (row.get("id"),)
+            ).fetchone()
+            try:
+                if exists:
+                    assignments = ", ".join(
+                        "%s = ?" % column for column in columns if column != "id"
+                    )
+                    conn.execute(
+                        "UPDATE %s SET %s WHERE id = ?" % (table, assignments),
+                        tuple(row.get(c) for c in columns if c != "id")
+                        + (row.get("id"),),
+                    )
+                    return "updated"
+                conn.execute(
+                    "INSERT INTO %s (%s) VALUES (%s)"
+                    % (table, ", ".join(columns), ", ".join("?" * len(columns))),
+                    values,
+                )
+                return "inserted"
+            except sqlite3.IntegrityError:
+                return "conflict"
+
+    def get_sync_state(self, key):
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM sync_state WHERE key = ?", (key,)
+            ).fetchone()
+            return row["value"] if row else ""
+
+    def set_sync_state(self, key, value):
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO sync_state (key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, str(value)),
+            )
 
     def task_context(self, task_id):
         """(kind, entity, task) names for a task id, or None."""

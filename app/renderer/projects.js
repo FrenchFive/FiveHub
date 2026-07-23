@@ -117,6 +117,32 @@ function card(project) {
     dotsButton(() => [
       { label: "Open", action: () => window.fivehub.openProject(project.name) },
       { label: "Reveal files", action: () => window.fivehub.reveal(project.path) },
+      project.git
+        ? {
+            label: "Sync (pull + push)",
+            action: async () => {
+              toast("SYNCING…");
+              try {
+                const { sync } = await window.fivehub.gitSync(project.name);
+                toast(sync.ok ? "SYNCED" : "SYNC NEEDS ATTENTION — SEE GIT");
+                load();
+              } catch (error) {
+                toast(cliErrorText(error).toUpperCase());
+              }
+            },
+          }
+        : {
+            label: "Set up Git",
+            action: async () => {
+              try {
+                await window.fivehub.gitSetup(project.name);
+                toast("GIT READY — .GITIGNORE + FIRST COMMIT");
+                load();
+              } catch (error) {
+                toast(cliErrorText(error).toUpperCase());
+              }
+            },
+          },
       "-",
       project.external
         ? {
@@ -161,6 +187,7 @@ function card(project) {
     `${counts.publishes || 0} PUBLISHES`,
   ];
   if (project.external) bits.push("LINKED");
+  if (project.git) bits.push("GIT");
   node.appendChild(el("div", "meta", bits.join(" · ")));
   node.addEventListener("click", () => window.fivehub.openProject(project.name));
   return node;

@@ -42,6 +42,18 @@ hub/                                    ← FIVEHUB_ROOT (put it on the server s
 - **Scenes** are versioned per task with notes — every save and publish is **signed** by the logged-in artist and timestamped.
 - **Publishes** are versioned per task *and format*; USD is the default and produces a full component asset. Deletion is **soft**: history stays in the database and files move to the project `.trash`.
 
+## THREE WAYS TO RUN :
+
+FiveHub is the same tool in all three — pick per project, mix freely:
+
+| Mode | Setup | How work is shared |
+|---|---|---|
+| **Local** | none — clone, install, go. The hub defaults to `<repo>/hub` | it isn't — solo work, full pipeline |
+| **Server** | point every machine's `FIVEHUB_ROOT` at a share | live: claims + presence + shared DB on the share |
+| **Git** | put a project in a repo (⋯ → *Set up Git*, or `git-setup`) | pull/push: **SYNC** in the app (`git-sync` = commit → pull --rebase → push → apply pulled records) |
+
+What makes git mode work: **the database is a local cache**. Every entity, task, scene, publish and dependency is mirrored as a tiny JSON *record sidecar* under `.fivehub/records/` — one file per record, so **git merges them without conflicts**. `project.db` is gitignored and rebuilds itself from the records whenever they change (after a pull, on a fresh clone, or via `fivehub rebuild`). A generated `.gitignore` keeps caches, renders, trash and the DB out of the repo; publishes and scenes are tracked (use git-lfs for heavy binaries if you like). On git projects, publishes and scene saves **auto-commit** with signed messages (`[fivehub] publish usd v003 Crate/modeling — Ana`; disable with `"git_autocommit": false` in `project.json`); pushing stays a deliberate SYNC. Two artists claiming the same version *offline* can't be prevented without a server — sync reports those rare collisions explicitly instead of hiding them.
+
 ## MULTI-USER & SERVER :
 
 Built so several artists on one share cannot hurt each other:

@@ -759,18 +759,13 @@ def _track_dependency(context, source, format_name, name, version):
         return
     try:
         project = get_project(context["project"])
-        consumer = project._task_record(
-            context["kind"], context["entity"], context["task"]
-        )
-        producer = project._task_record(
-            source["kind"], source["entity"], source["task"]
+        project.record_dependency(
+            context["kind"], context["entity"], context["task"],
+            source["kind"], source["entity"], source["task"],
+            format_name, name, src_version=version or None, user=get_user(),
         )
     except ValueError:
         return
-    project.db.record_dependency(
-        consumer["id"], producer["id"], format_name, name,
-        src_version=version or None, user=get_user(),
-    )
 
 
 def _import_publish(format_name, path, name):

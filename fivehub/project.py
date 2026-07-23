@@ -27,7 +27,13 @@ DEFAULT_SETTINGS = {
     "res_y": 1080,
     "frame_start": 1001,
     "frame_end": 1100,
+    # Git-tracked projects: commit publishes/saves automatically (push stays
+    # manual via Sync).
+    "git_autocommit": True,
 }
+
+# FK-safe application order for record sidecars.
+_RECORD_ORDER = ("entity", "task", "scene", "publish", "dependency")
 
 
 class Project:
@@ -42,7 +48,100 @@ class Project:
     def db(self):
         if self._db is None:
             self._db = ProjectDB(os.path.join(self.root, config.PROJECT_DB))
+            # The database is a local cache of the record sidecars — after a
+            # git pull (or with a fresh/deleted db) it catches itself up.
+            try:
+                self._maybe_sync()
+            except Exception:
+                pass  # a broken sidecar must not block the pipeline
         return self._db
+
+    # -- record sidecars (git-mergeable source of truth) -----------------
+
+    def records_dir(self):
+        return os.path.join(self.root, config.RECORDS_DIR)
+
+    def _records_signature(self):
+        base = self.records_dir()
+        count = 0
+        latest = 0
+        if os.path.isdir(base):
+            for table in os.listdir(base):
+                table_dir = os.path.join(base, table)
+                if not os.path.isdir(table_dir):
+                    continue
+                with os.scandir(table_dir) as entries:
+                    for entry in entries:
+                        if entry.name.endswith(".json"):
+                            count += 1
+                            mtime = entry.stat().st_mtime_ns
+                            if mtime > latest:
+                                latest = mtime
+        return "%d:%d" % (count, latest)
+
+    def _record(self, table, row_id):
+        """Mirror one database row as a JSON sidecar (atomic write)."""
+        if not row_id:
+            return
+        row = self._db.get_row(table, row_id)
+        if row is None:
+            return
+        table_dir = os.path.join(self.records_dir(), table)
+        os.makedirs(table_dir, exist_ok=True)
+        target = os.path.join(table_dir, "%s.json" % row_id)
+        temp = target + ".tmp"
+        with open(temp, "w", encoding="utf-8") as handle:
+            json.dump({"table": table, "row": row}, handle, indent=2, sort_keys=True)
+        os.replace(temp, target)
+        self._db.set_sync_state("records_sig", self._records_signature())
+
+    def _maybe_sync(self):
+        signature = self._records_signature()
+        if signature == self._db.get_sync_state("records_sig"):
+            return None
+        return self.sync_from_records(signature=signature)
+
+    def sync_from_records(self, signature=None):
+        """Apply every record sidecar to the local database (rebuild)."""
+        self.db  # ensure the database exists (property also self-syncs once)
+        base = self.records_dir()
+        result = {"applied": 0, "conflicts": []}
+        for table in _RECORD_ORDER:
+            table_dir = os.path.join(base, table)
+            if not os.path.isdir(table_dir):
+                continue
+            for entry in sorted(os.listdir(table_dir)):
+                if not entry.endswith(".json"):
+                    continue
+                path = os.path.join(table_dir, entry)
+                try:
+                    with open(path, "r", encoding="utf-8") as handle:
+                        row = json.load(handle).get("row", {})
+                except (OSError, ValueError):
+                    result["conflicts"].append({"record": path, "reason": "unreadable"})
+                    continue
+                outcome = self._db.upsert_record(table, row)
+                if outcome == "conflict":
+                    result["conflicts"].append({
+                        "record": path,
+                        "reason": "a different record owns this version slot "
+                                  "(simultaneous offline claims) — rename one "
+                                  "and rebuild",
+                    })
+                else:
+                    result["applied"] += 1
+        self._db.set_sync_state(
+            "records_sig", signature or self._records_signature()
+        )
+        return result
+
+    def _autocommit(self, message):
+        """Best-effort git commit of pipeline events on git-tracked projects."""
+        from . import gitsync
+
+        if not self.settings().get("git_autocommit", True):
+            return
+        gitsync.autocommit(self.root, "[fivehub] %s" % message)
 
     @property
     def meta_path(self):
@@ -138,11 +237,13 @@ class Project:
             fps = defaults["fps"] if fps is None else fps
             res_x = defaults["res_x"] if res_x is None else res_x
             res_y = defaults["res_y"] if res_y is None else res_y
-        self.db.create_entity(
+        entity_id = self.db.create_entity(
             kind, name, sequence=sequence, frame_start=frame_start,
             frame_end=frame_end, fps=fps, res_x=res_x, res_y=res_y,
         )
         os.makedirs(self.entity_dir(kind, name), exist_ok=True)
+        self._record("entity", entity_id)
+        self._autocommit("add %s %s" % (kind, name))
         return name
 
     def update_entity(self, kind, name, **fields):
@@ -150,6 +251,7 @@ class Project:
         if record is None:
             raise ValueError("unknown %s %r" % (kind, name))
         self.db.update_entity(record["id"], **fields)
+        self._record("entity", record["id"])
 
     def create_task(self, kind, entity, task):
         task = str(task or "").strip().lower()
@@ -160,13 +262,15 @@ class Project:
         record = self.db.get_entity(kind, entity)
         if record is None:
             raise ValueError("unknown %s %r" % (kind, entity))
-        self.db.create_task(record["id"], task)
+        task_id = self.db.create_task(record["id"], task)
         for directory in (
             self.scenes_dir(kind, entity, task),
             self.caches_dir(kind, entity, task),
             os.path.join(self.task_dir(kind, entity, task), config.PUBLISH_DIR),
         ):
             os.makedirs(directory, exist_ok=True)
+        self._record("task", task_id)
+        self._autocommit("add task %s/%s" % (entity, task))
         return task
 
     def _task_record(self, kind, entity, task):
@@ -217,6 +321,12 @@ class Project:
             user = get_user()
         task_record = self._task_record(kind, entity, task)
         self.db.complete_scene(task_record["id"], version, notes, user)
+        row = self.db.get_scene(task_record["id"], version)
+        if row:
+            self._record("scene", row["id"])
+        self._autocommit(
+            "scene v%03d %s/%s — %s" % (int(version), entity, task, user)
+        )
         return path
 
     def release_scene(self, kind, entity, task, version):
@@ -263,6 +373,13 @@ class Project:
             path=self.rel(path), report_path=self.rel(report_path),
             thumbnail=self.rel(thumbnail), comment=comment, user=user,
         )
+        row = self.db.get_publish(task_record["id"], format_name, version)
+        if row:
+            self._record("publish", row["id"])
+        self._autocommit(
+            "publish %s v%03d %s/%s — %s"
+            % (format_name, int(version), entity, task, user)
+        )
 
     def release_publish(self, kind, entity, task, format_name, version):
         task_record = self._task_record(kind, entity, task)
@@ -271,10 +388,22 @@ class Project:
     def record_blocked_publish(self, kind, entity, task, name, format_name,
                                variant, report, report_path="", comment="", user=""):
         task_record = self._task_record(kind, entity, task)
-        self.db.record_blocked_publish(
+        row_id = self.db.record_blocked_publish(
             task_record["id"], name, format_name, variant, report,
             report_path=self.rel(report_path), comment=comment, user=user,
         )
+        self._record("publish", row_id)
+
+    def record_dependency(self, kind, entity, task, src_kind, src_entity,
+                          src_task, src_format, src_name, src_version=None, user=""):
+        consumer = self._task_record(kind, entity, task)
+        producer = self._task_record(src_kind, src_entity, src_task)
+        row_id = self.db.record_dependency(
+            consumer["id"], producer["id"], src_format, src_name,
+            src_version=src_version, user=user,
+        )
+        self._record("dependency", row_id)
+        return row_id
 
     def publishes(self, kind, entity, task):
         rows = self.db.list_publishes(self._task_record(kind, entity, task)["id"])
@@ -300,8 +429,11 @@ class Project:
 
     def browse(self):
         """Full project tree for the app: entities with their tasks."""
+        from . import gitsync
+
         tree = {"name": self.name, **self.meta(), "image_path": self.image_path(),
-                "root": self.root, "settings": self.settings()}
+                "root": self.root, "settings": self.settings(),
+                "git_status": gitsync.status(self.root)}
         presence = {row["task_id"]: row for row in self.db.list_presence()}
         for kind in config.KINDS:
             entries = []
@@ -354,20 +486,31 @@ class Project:
     def set_scene_notes(self, kind, entity, task, version, notes):
         task_record = self._task_record(kind, entity, task)
         self.db.update_scene_notes(task_record["id"], version, notes)
+        row = self.db.get_scene(task_record["id"], version)
+        if row:
+            self._record("scene", row["id"])
 
     def set_publish_comment(self, kind, entity, task, format_name, version, comment):
         task_record = self._task_record(kind, entity, task)
         self.db.update_publish_comment(task_record["id"], format_name, version, comment)
+        row = self.db.get_publish(task_record["id"], format_name, version)
+        if row:
+            self._record("publish", row["id"])
 
     def delete_scene(self, kind, entity, task, version):
         task_record = self._task_record(kind, entity, task)
-        row = self._abs_row(self.db.delete_scene(task_record["id"], version))
+        row = self.db.delete_scene(task_record["id"], version)
+        self._record("scene", row["id"])
+        row = self._abs_row(dict(row))
         self._trash(row.get("file", ""), "%s_%s_scene_v%03d" % (entity, task, version))
+        self._autocommit("remove scene v%03d %s/%s" % (int(version), entity, task))
         return row
 
     def delete_publish(self, kind, entity, task, format_name, version):
         task_record = self._task_record(kind, entity, task)
-        row = self._abs_row(self.db.delete_publish(task_record["id"], format_name, version))
+        row = self.db.delete_publish(task_record["id"], format_name, version)
+        self._record("publish", row["id"])
+        row = self._abs_row(dict(row))
         path = row.get("path", "")
         # usd rows point at the entry layer; file rows at the version dir.
         version_dir = os.path.dirname(path) if os.path.isfile(path) else path
@@ -376,6 +519,9 @@ class Project:
         )
         if format_name == "usd":
             self._rebuild_usd_root(task_record["id"], kind, entity, task, row["name"])
+        self._autocommit(
+            "remove publish %s v%03d %s/%s" % (format_name, int(version), entity, task)
+        )
         return row
 
     def _rebuild_usd_root(self, task_id, kind, entity, task, name):
@@ -414,14 +560,21 @@ class Project:
     def delete_task(self, kind, entity, task):
         task_record = self._task_record(kind, entity, task)
         self.db.delete_task(task_record["id"])
+        self._record("task", task_record["id"])
         self._trash(self.task_dir(kind, entity, task), "%s_%s" % (entity, task))
+        self._autocommit("remove task %s/%s" % (entity, task))
 
     def delete_entity(self, kind, name):
         record = self.db.get_entity(kind, name)
         if record is None:
             raise ValueError("unknown %s %r" % (kind, name))
+        tasks = self.db.list_tasks(record["id"])
         self.db.delete_entity(record["id"])
+        self._record("entity", record["id"])
+        for task_row in tasks:
+            self._record("task", task_row["id"])
         self._trash(self.entity_dir(kind, name), name)
+        self._autocommit("remove %s %s" % (kind, name))
 
     # -- presence --------------------------------------------------------
 
@@ -552,6 +705,12 @@ def create_project(name, image=None, hub_root=None, location=None, settings=None
             f, indent=2,
         )
 
+    # Ready for git from day one (harmless when the project never uses it).
+    from . import gitsync
+
+    with open(os.path.join(project_root, ".gitignore"), "w", encoding="utf-8") as f:
+        f.write(gitsync.GITIGNORE)
+
     if location:
         _write_registry_locked(root, lambda reg: reg.__setitem__(name, project_root))
 
@@ -569,6 +728,8 @@ def get_project(name, hub_root=None):
 
 
 def list_projects(hub_root=None):
+    from . import gitsync
+
     root = config.ensure_hub(hub_root)
     default_dir = config.projects_path(root)
     projects = []
@@ -577,6 +738,7 @@ def list_projects(hub_root=None):
         info = {"name": name, **project.meta()}
         info["path"] = project_root
         info["external"] = os.path.dirname(project_root) != default_dir
+        info["git"] = gitsync.is_git_project(project_root)
         info["image_path"] = project.image_path()
         info["counts"] = project.db.counts()
         projects.append(info)
