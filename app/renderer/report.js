@@ -4,7 +4,10 @@ const box = document.getElementById("report");
 const { path: reportPath } = queryParams();
 
 function ruleBlock(result) {
-  const node = el("div", "rule " + result.status);
+  // Severity class lets CSS reserve red for error-level failures only.
+  const classes = ["rule", result.status];
+  if (result.status === "fail") classes.push(result.severity);
+  const node = el("div", classes.join(" "));
   node.appendChild(el("div", "status", result.status.toUpperCase()));
 
   const body = el("div", "body");
@@ -48,8 +51,7 @@ async function load() {
     );
     box.appendChild(meta);
 
-    const list = el("div");
-    list.style.borderTop = "1px solid #fff";
+    const list = el("div", "rule-list");
     for (const result of report.results) list.appendChild(ruleBlock(result));
     box.appendChild(list);
   } catch (error) {

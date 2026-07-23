@@ -77,8 +77,11 @@ async function load() {
     clear(projectsBox);
     if (!listing.projects.length) {
       const box = el("div", "empty-state");
-      box.appendChild(el("div", null, "NO PROJECTS YET"));
-      box.appendChild(el("div", null, "CREATE ONE ABOVE — OR SEED THE DEMO"));
+      const blobs = el("div", "blobs");
+      for (let i = 0; i < 4; i += 1) blobs.appendChild(el("span"));
+      box.appendChild(blobs);
+      box.appendChild(el("div", null, "No projects yet"));
+      box.appendChild(el("div", null, "Create one above — or seed the demo"));
       const demoBtn = el("button", "btn solid", "SEED DEMO PROJECT");
       demoBtn.addEventListener("click", async () => {
         demoBtn.textContent = "PUBLISHING…";
