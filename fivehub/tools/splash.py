@@ -270,16 +270,21 @@ def _configure(parser):
     parser.add_argument("--user", default="", help="artist name shown as signed in")
     parser.add_argument("--hub", default="", help="hub path shown in the footer")
     parser.add_argument("--out", default="", help="output PNG (default: package splash)")
+    parser.add_argument("--if-missing", action="store_true",
+                        help="only render when the output file does not exist")
 
 
 @cli_command("splash", "regenerate the FIVE HUB Houdini splash screen", _configure)
 def run(_root, args):
+    out_path = args.out or default_output()
+    if args.if_missing and os.path.isfile(out_path):
+        return {"path": out_path, "skipped": "already exists"}
     try:
         import PIL  # noqa: F401
     except ImportError:
         raise SystemExit("the splash generator needs Pillow: pip install pillow")
     return render(
-        args.out or default_output(),
+        out_path,
         houdini_version=args.houdini or _detect_houdini_version(),
         license_type=args.license,
         user=args.user,
