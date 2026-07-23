@@ -388,28 +388,30 @@ def publish():
         _message("Select the geo objects (or SOPs) to publish.")
         return None
 
-    prefill = _current_context()
-    dialog = PublishDialog(prefill=prefill)
-    if not dialog.context_widget.has_projects():
-        _error("No projects in the hub yet.\nCreate one in the hub app first.")
-        return None
-    if prefill is None:
-        # No pipeline scene context — suggest a name from the selection.
-        suggested = naming.make_identifier(nodes[0].name(), fallback="Asset")
-        dialog.name_edit.setText(suggested[0].upper() + suggested[1:])
-    if not exec_dialog(dialog):
-        return None
-
-    values = dialog.values()
-    context = values["context"]
-    if not (context["project"] and context["entity"] and context["task"]):
-        _error("Project, asset/shot and task are all required.")
+    # Publishing is only available from a scene saved in the pipeline —
+    # the context is derived from the scene, never chosen at publish time.
+    context = _current_context()
+    if context is None:
+        _error(
+            "This scene is not saved in the pipeline, so there is nothing "
+            "to publish into.\n\nUse FIVE HUB > Save Scene As... to save it "
+            "under a project / asset-or-shot / task first."
+        )
         return None
 
     try:
-        project = _ensure_context(context)
+        project = get_project(context["project"])
+        project._task_record(context["kind"], context["entity"], context["task"])
     except ValueError as error:
         _error(str(error))
+        return None
+
+    dialog = PublishDialog(context=context)
+    if not exec_dialog(dialog):
+        return None
+    values = dialog.values()
+    if not values["name"]:
+        _error("A publish name is required.")
         return None
 
     root = config.ensure_hub()

@@ -45,6 +45,10 @@ async function load() {
     const meta = el("div", "row");
     meta.appendChild(el("span", "label", report.asset_name));
     meta.appendChild(el("span", "label", "VARIANT: " + report.variant));
+    if (report.user) {
+      meta.appendChild(el("span", "label", "BY " + report.user));
+    }
+    meta.appendChild(el("span", "label", shortDate(report.created_at)));
     meta.appendChild(el("span", "spacer"));
     meta.appendChild(
       el("span", "label", report.error_count + " ERRORS · " + report.warning_count + " WARNINGS"),

@@ -70,6 +70,7 @@ class ValidationReport:
     asset_name: str
     variant: str = "default"
     project: str = ""
+    user: str = ""
     created_at: str = field(default_factory=utc_now)
     results: list = field(default_factory=list)
 
@@ -96,6 +97,7 @@ class ValidationReport:
             "asset_name": self.asset_name,
             "variant": self.variant,
             "project": self.project,
+            "user": self.user,
             "created_at": self.created_at,
             "passed": self.passed,
             "error_count": self.error_count,
@@ -109,6 +111,7 @@ class ValidationReport:
             asset_name=data.get("asset_name", ""),
             variant=data.get("variant", "default"),
             project=data.get("project", ""),
+            user=data.get("user", ""),
             created_at=data.get("created_at", ""),
         )
         for entry in data.get("results", []):
@@ -139,6 +142,8 @@ class ValidationReport:
         lines = []
         verdict = "PASSED" if self.passed else "FAILED"
         lines.append("VALIDATION %s — %s (variant: %s)" % (verdict, self.asset_name, self.variant))
+        if self.user:
+            lines.append("by %s — %s" % (self.user, self.created_at))
         lines.append("%d error(s), %d warning(s)" % (self.error_count, self.warning_count))
         lines.append("-" * 60)
         for result in self.results:
@@ -152,10 +157,12 @@ class ValidationReport:
 
 def run_rules(rules, request):
     """Run every rule against the request and assemble the report."""
+    source = getattr(request, "source", None)
     report = ValidationReport(
         asset_name=request.asset_name,
         variant=request.variant,
         project=request.project,
+        user=getattr(source, "user", "") if source else "",
     )
     for rule in rules:
         if not rule.applies(request):

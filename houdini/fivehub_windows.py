@@ -35,6 +35,8 @@ QLabel#heading { font-size: 21px; font-weight: 700; }
 QLabel#headingFail { font-size: 21px; font-weight: 700; color: #ff3b30; }
 QLabel#hint { font-size: 10px; font-weight: 600; letter-spacing: 1px;
     color: #6e6e73; }
+QLabel#context { background: #ffffff; border: 1px solid rgba(0, 0, 0, 40);
+    border-radius: 10px; padding: 9px 12px; font-weight: 600; }
 QLineEdit, QComboBox, QPlainTextEdit, QListWidget {
     background: #ffffff; color: #0b0b0c;
     border: 1px solid rgba(0, 0, 0, 40); border-radius: 10px;
@@ -313,21 +315,34 @@ class LoadSceneDialog(_BaseDialog):
 
 
 class PublishDialog(_BaseDialog):
-    """Define what a publish is before it runs: context, format, name,
-    variant and comment."""
+    """Define what a publish is before it runs. The context is NOT a
+    choice: it comes from the saved scene — the dialog only shows it."""
 
-    def __init__(self, prefill=None, parent=None):
+    def __init__(self, context, parent=None):
         super(PublishDialog, self).__init__("PUBLISH", parent)
-        self.resize(680, 380)
+        self.resize(640, 340)
+        self.context = dict(context)
 
-        self.context_widget = ContextWidget(editable=True)
-        self.layout_.addWidget(self.context_widget)
+        banner = _label(
+            "%s   ·   %s %s   ·   %s"
+            % (
+                context["project"],
+                context["kind"].upper(),
+                context["entity"],
+                context["task"],
+            ),
+            "context",
+        )
+        self.layout_.addWidget(banner)
+        self.layout_.addWidget(
+            _label("CONTEXT COMES FROM THE SAVED SCENE — SAVE ELSEWHERE TO CHANGE IT", "hint")
+        )
 
         grid = QtWidgets.QGridLayout()
         grid.setHorizontalSpacing(14)
         grid.setVerticalSpacing(6)
 
-        self.name_edit = QtWidgets.QLineEdit()
+        self.name_edit = QtWidgets.QLineEdit(context["entity"])
         self.format_combo = QtWidgets.QComboBox()
         for format_name in config.FORMATS:
             self.format_combo.addItem(format_name.upper(), format_name)
@@ -353,18 +368,10 @@ class PublishDialog(_BaseDialog):
         self.layout_.addWidget(self.hint_label)
 
         self.add_buttons("VALIDATE + PUBLISH")
-        self.context_widget.changed.connect(self._sync_name)
-        self.context_widget.set_context(prefill)
-        self._sync_name()
-
-    def _sync_name(self):
-        entity = self.context_widget.context()["entity"]
-        if entity and not self.name_edit.isModified():
-            self.name_edit.setText(entity)
 
     def values(self):
         return {
-            "context": self.context_widget.context(),
+            "context": dict(self.context),
             "name": self.name_edit.text().strip(),
             "format": self.format_combo.currentData(),
             "variant": self.variant_edit.text().strip() or "default",
