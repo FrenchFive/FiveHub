@@ -16,15 +16,12 @@ async function ensureLogin() {
         const field = sheetField(body, "YOUR NAME");
         const input = el("input");
         input.type = "text";
-        input.placeholder = who.fallback || "Your name";
+        input.placeholder = "FIVE";
         field.appendChild(input);
         body.appendChild(
           el("p", "mono", "Every scene save and publish is signed with this name."),
         );
-        return () => {
-          const value = input.value.trim() || who.fallback;
-          return value ? { name: value } : null;
-        };
+        return () => ({ name: input.value.trim() || "FIVE" });
       },
     });
     await window.fivehub.login(values.name);
