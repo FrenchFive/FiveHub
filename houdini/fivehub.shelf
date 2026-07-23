@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shelfDocument>
+  <!-- FiveHub shelf. Relies on the FIVEHUB environment variable set by the
+       fivehub.json Houdini package (written by houdini/install.py). -->
+
+  <toolshelf name="fivehub" label="FIVE HUB">
+    <memberTool name="fivehub_publish"/>
+    <memberTool name="fivehub_import"/>
+    <memberTool name="fivehub_app"/>
+    <memberTool name="fivehub_reload"/>
+  </toolshelf>
+
+  <tool name="fivehub_publish" label="PUBLISH" icon="$FIVEHUB/imgs/floppy.png">
+    <helpText><![CDATA[Validate the selected geometry and publish it to the hub as a USD component asset.]]></helpText>
+    <script scriptType="python"><![CDATA[import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.publish()]]></script>
+  </tool>
+
+  <tool name="fivehub_import" label="IMPORT" icon="$FIVEHUB/imgs/folder.png">
+    <helpText><![CDATA[Reference a published asset (uses the selection staged by the FiveHub app, or a file chooser).]]></helpText>
+    <script scriptType="python"><![CDATA[import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.import_asset()]]></script>
+  </tool>
+
+  <tool name="fivehub_app" label="HUB" icon="$FIVEHUB/imgs/whale.png">
+    <helpText><![CDATA[Open the standalone FiveHub app (Electron).]]></helpText>
+    <script scriptType="python"><![CDATA[import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.launch_hub()]]></script>
+  </tool>
+
+  <tool name="fivehub_reload" label="RELOAD" icon="$FIVEHUB/imgs/whale.png">
+    <helpText><![CDATA[Developer helper: reload the fivehub modules in place.]]></helpText>
+    <script scriptType="python"><![CDATA[import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.reload_fivehub()]]></script>
+  </tool>
+</shelfDocument>
