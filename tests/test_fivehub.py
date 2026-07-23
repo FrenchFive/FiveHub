@@ -217,6 +217,29 @@ class UserTests(unittest.TestCase):
         os.environ[user.ENV_USER] = "Override"
         self.assertEqual(user.get_user(), "Override")
 
+    def test_scene_claims_follow_the_license_extension(self):
+        # Apprentice/Indie Houdini writes .hipnc/.hiplc — the claim must
+        # target the file the DCC will actually save, or the DB points at
+        # a stale .hip forever.
+        hub = os.path.join(self.tmp.name, "hub")
+        project = create_project("NonCommercial", hub_root=hub)
+        project.create_entity("asset", "Crate")
+        project.create_task("asset", "Crate", "modeling")
+        path, version = project.claim_scene(
+            "asset", "Crate", "modeling", "FIVE", extension=".hipnc"
+        )
+        self.assertTrue(path.endswith("Crate_modeling_v001.hipnc"), path)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("hipnc bytes")
+        project.complete_scene("asset", "Crate", "modeling", version)
+        scene = project.scenes("asset", "Crate", "modeling")[0]
+        self.assertTrue(scene["file"].endswith(".hipnc"), scene["file"])
+        context = parse_scene_path(path, hub_root=hub)
+        self.assertEqual(
+            (context["project"], context["kind"], context["entity"], context["task"]),
+            ("NonCommercial", "asset", "Crate", "modeling"),
+        )
+
     def test_publish_is_signed_with_login(self):
         user.set_user("Signer")
         hub = os.path.join(self.tmp.name, "hub")
