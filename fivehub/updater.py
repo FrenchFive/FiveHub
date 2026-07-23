@@ -9,10 +9,11 @@ HDAs and the app's renderer. This module makes that a one-click operation:
 - ``update()``  ``git pull --ff-only`` + ``npm install`` when the app's
                 dependencies changed; reports what needs a restart
 
-The app runs a check (and, by default, the update itself) on every launch,
-and shows an UPDATE button whenever a newer version exists. All of it
-degrades safely: offline, non-git installs and dirty checkouts produce
-clear messages, never a broken pipeline.
+The app checks in the background on every launch and offers the update in
+a small dismissible popup (plus a header UPDATE button) — nothing pulls
+without the user accepting. All of it degrades safely: offline, non-git
+installs and dirty checkouts produce clear messages, never a broken
+pipeline.
 """
 
 import os

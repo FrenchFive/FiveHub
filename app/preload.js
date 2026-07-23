@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld("fivehub", {
   gitSetup: (project) => ipcRenderer.invoke("hub:gitSetup", project),
   gitSync: (project) => ipcRenderer.invoke("hub:gitSync", project),
   updateCheck: () => ipcRenderer.invoke("hub:updateCheck"),
+  updateDismiss: () => ipcRenderer.invoke("hub:updateDismiss"),
   updateRun: () => ipcRenderer.invoke("hub:updateRun"),
 
   openProject: (name) => ipcRenderer.invoke("win:project", name),

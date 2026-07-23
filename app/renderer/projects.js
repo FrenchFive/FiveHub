@@ -240,8 +240,11 @@ async function load() {
   }
 }
 
-// Update button: appears whenever the remote carries a newer version
-// (the app also self-updates at launch; this covers long-running apps).
+// Self-update, by consent: the version check runs in the background (boot
+// + every 5 minutes). A newer version shows the header UPDATE button and,
+// once per boot, a small dismissible popup — UPDATE pulls and restarts,
+// LATER keeps it quiet until the next launch (the flag lives in the main
+// process, so reloads and other windows stay quiet too).
 const updateBtn = document.getElementById("update");
 updateBtn.addEventListener("click", async () => {
   const ok = await openSheet({
@@ -258,26 +261,85 @@ updateBtn.addEventListener("click", async () => {
   });
   if (!ok) return;
   updateBtn.textContent = "UPDATING…";
+  await runUpdate();
+  checkForUpdate();
+});
+
+// Pull + restart; reaching past updateRun means the app did NOT relaunch.
+async function runUpdate() {
   try {
     const { update } = await window.fivehub.updateRun();
     if (update && update.error) toast(update.error.toUpperCase());
     else if (update && !update.updated) toast("ALREADY UP TO DATE");
-    // On success the main process relaunches the app.
+    return true;
   } catch (error) {
     toast(cliErrorText(error).toUpperCase());
+    return false;
   }
-  checkForUpdate();
-});
+}
+
+let updatePopup = null;
+
+function offerUpdate(update) {
+  if (updatePopup) return;
+  const popup = el("div", "popup");
+  popup.setAttribute("role", "status");
+  popup.appendChild(el("div", "label", "UPDATE AVAILABLE"));
+  popup.appendChild(
+    el("p", "popup-text",
+       "FiveHub v" + update.remote + " is out — you are on v" + update.current +
+       ". Updating pulls the latest pipeline and restarts the app."),
+  );
+  const actions = el("div", "popup-actions");
+  const laterBtn = el("button", "btn", "LATER");
+  const goBtn = el("button", "btn solid", "UPDATE");
+  laterBtn.addEventListener("click", () => {
+    window.fivehub.updateDismiss(); // quiet until the next app boot
+    dismissUpdatePopup();
+  });
+  goBtn.addEventListener("click", async () => {
+    goBtn.textContent = "UPDATING…";
+    goBtn.disabled = true;
+    laterBtn.disabled = true;
+    const done = await runUpdate();
+    if (done) {
+      // Errored or already up to date — don't re-offer this boot.
+      window.fivehub.updateDismiss();
+      dismissUpdatePopup();
+      checkForUpdate();
+    } else {
+      goBtn.textContent = "UPDATE";
+      goBtn.disabled = false;
+      laterBtn.disabled = false;
+    }
+  });
+  actions.appendChild(laterBtn);
+  actions.appendChild(goBtn);
+  popup.appendChild(actions);
+  document.body.appendChild(popup);
+  requestAnimationFrame(() => popup.classList.add("show"));
+  updatePopup = popup;
+}
+
+function dismissUpdatePopup() {
+  if (!updatePopup) return;
+  const popup = updatePopup;
+  updatePopup = null;
+  popup.classList.remove("show");
+  setTimeout(() => popup.remove(), 260);
+}
 
 async function checkForUpdate() {
   try {
-    const { update } = await window.fivehub.updateCheck();
+    const { update, dismissed } = await window.fivehub.updateCheck();
     if (update && update.update_available) {
       updateBtn.textContent = "UPDATE — v" + update.remote;
       updateBtn.classList.remove("hidden");
+      if (!dismissed) offerUpdate(update);
     } else {
       updateBtn.classList.add("hidden");
       updateBtn.textContent = "";
+      dismissUpdatePopup();
     }
   } catch {
     // offline — stay quiet
