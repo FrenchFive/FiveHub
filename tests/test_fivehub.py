@@ -1261,6 +1261,43 @@ class CliTests(unittest.TestCase):
         )
 
 
+class InstallerTests(unittest.TestCase):
+    def test_one_shot_installer_offline(self):
+        # Network/npm/pip steps skipped: the installer must still succeed
+        # and write the Houdini package for every prefs dir it finds.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            os.makedirs(os.path.join(home, "houdini20.5"))
+            os.makedirs(os.path.join(home, "houdini21.0"))
+            env = dict(os.environ, HOME=home)
+            completed = subprocess.run(
+                [sys.executable, "install.py", "--no-pip", "--no-fonts",
+                 "--no-splash", "--no-app"],
+                cwd=REPO, capture_output=True, text=True, env=env, timeout=120,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            for version in ("houdini20.5", "houdini21.0"):
+                package = os.path.join(home, version, "packages", "fivehub.json")
+                self.assertTrue(os.path.isfile(package), package)
+            self.assertIn("FIVE HUB menu", completed.stdout)
+
+    def test_houdini_installer_auto_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            os.makedirs(os.path.join(home, "houdini20.5"))
+            env = dict(os.environ, HOME=home)
+            completed = subprocess.run(
+                [sys.executable, os.path.join("houdini", "install.py"), "--auto"],
+                cwd=REPO, capture_output=True, text=True, env=env, timeout=60,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(
+                os.path.isfile(
+                    os.path.join(home, "houdini20.5", "packages", "fivehub.json")
+                )
+            )
+
+
 class ThumbTests(unittest.TestCase):
     def test_png_magic(self):
         with tempfile.TemporaryDirectory() as tmp:

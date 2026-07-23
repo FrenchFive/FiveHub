@@ -125,11 +125,26 @@ Package installers: `cd app && npm install && npm run dist` (electron-builder �
 
 ## SETUP :
 
-1. Clone where the pipeline lives (server share for teams) and point everyone's `FIVEHUB_ROOT` at the same hub directory.
-2. Per workstation: `python houdini/install.py` (writes one Houdini package file; delete it to uninstall). The package also sets the **FIVE HUB splash screen** — Houdini launches wearing the pipeline (goop, Satoshi Black wordmark, FiveHub + Houdini versions, license type). Regenerate it with your session's real facts via `fivehub.cli splash` or **Pipeline Tools ▸ Regenerate FiveHub Splash**.
-3. (Optional, recommended) Drop the free **Satoshi** family into `assets/fonts/` — see its README — so the app, Qt windows and splash wear the brand typeface; everything falls back to system fonts without it.
-4. App: `cd app && npm install` (or distribute a built installer).
-5. Server: a cron for `python -m fivehub.cli backup`, and `python -m fivehub.cli worker` as a service for renders.
+One step. Clone, then:
+
+- **Windows** — double-click **`install.bat`** (or run it in any shell)
+- **macOS / Linux** — `./install.sh`
+
+That's the whole install. It sets up, best-effort with a clear summary (a
+failed step never blocks the rest): the **Houdini package** into every
+Houdini preferences folder found (menu + shelf + splash; delete
+`packages/fivehub.json` to uninstall), **Pillow**, the **Satoshi fonts**
+(downloaded from Fontshare into `assets/fonts/` — your download, never
+shipped in the repo), the generated **splash screen**, and the **app
+dependencies** (`npm install`, when Node.js is present).
+
+Then launch Houdini — the FIVE HUB menu is in the main menu bar, and the
+HUB button opens the app (first launch asks your name; that's the login).
+
+For teams: point every machine's `FIVEHUB_ROOT` at the shared hub, and on
+the server run a cron for `python -m fivehub.cli backup` plus
+`python -m fivehub.cli worker` as a service for renders. Manual installs
+remain available (`python houdini/install.py [--auto|--prefs <dir>]`).
 
 Env vars: `FIVEHUB_ROOT` (hub), `FIVEHUB_USER` (identity override), `FIVEHUB_HOUDINI` (GUI binary for the app's open buttons), `FIVEHUB_HYTHON` (worker), `FIVEHUB_PYTHON` (app→CLI bridge).
 
