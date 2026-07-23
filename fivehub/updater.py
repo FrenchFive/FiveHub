@@ -116,7 +116,7 @@ def update(repo=None):
     result["updated"] = True
     result["new"] = _read_pulled_version(repo)
     result["restart"] = ["app", "houdini"]
-    _ensure_splash(repo)
+    _refresh_splash(repo)
 
     _ok, changed = _run(repo, "diff", "--name-only", before, after)
     if "app/package.json" in changed:
@@ -135,18 +135,21 @@ def update(repo=None):
     return result
 
 
-def _ensure_splash(repo):
-    """Re-render the machine-generated splash when a pull removed it (the
-    transition that stopped tracking it deletes the old tracked copy)."""
+def _refresh_splash(repo):
+    """Re-render the machine-generated splash after every update — the
+    pull may have brought new art or a new generator. Reloaded so even a
+    long-lived process (Houdini) renders the freshly pulled code."""
     if os.path.normpath(repo) != os.path.normpath(config.repo_root()):
-        return
-    target = os.path.join(repo, "houdini", "splash", "fivehub_splash.png")
-    if os.path.isfile(target):
-        return
+        return  # test fixtures and foreign clones render nothing
     try:
+        import importlib
+
         from .tools import splash
 
-        splash.render(target)
+        importlib.reload(splash)
+        splash.render(
+            os.path.join(repo, "houdini", "splash", "fivehub_splash.png")
+        )
     except Exception:
         pass  # no Pillow — Houdini shows its stock splash until reinstall
 
