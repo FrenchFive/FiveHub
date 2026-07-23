@@ -13,7 +13,7 @@ import unittest
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
-from fivehub import config, geometry, naming
+from fivehub import config, geometry, naming, user
 from fivehub.demo import cube_mesh, run_demo
 from fivehub.geometry import MaterialData, PublishRequest
 from fivehub.project import create_project, get_project, list_projects, parse_scene_path
@@ -185,6 +185,60 @@ class ValidationTests(unittest.TestCase):
         self.assertIn("VALIDATION PASSED", loaded.to_text())
 
 
+class UserTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self._env = {
+            key: os.environ.get(key) for key in (user.ENV_USER, user.ENV_USER_FILE)
+        }
+        os.environ.pop(user.ENV_USER, None)
+        os.environ[user.ENV_USER_FILE] = os.path.join(self.tmp.name, "user.json")
+
+    def tearDown(self):
+        for key, value in self._env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        self.tmp.cleanup()
+
+    def test_login_roundtrip(self):
+        self.assertFalse(user.logged_in())
+        self.assertTrue(user.get_user())  # OS fallback still gives a name
+        user.set_user("  Chan  ")
+        self.assertTrue(user.logged_in())
+        self.assertEqual(user.get_user(), "Chan")
+        with self.assertRaises(ValueError):
+            user.set_user("   ")
+
+    def test_env_wins(self):
+        user.set_user("Chan")
+        os.environ[user.ENV_USER] = "Override"
+        self.assertEqual(user.get_user(), "Override")
+
+    def test_publish_is_signed_with_login(self):
+        user.set_user("Signer")
+        hub = os.path.join(self.tmp.name, "hub")
+        project = create_project("Signed", hub_root=hub)
+        project.create_entity("asset", "Crate")
+        project.create_task("asset", "Crate", "modeling")
+        result = publish_usd(
+            project, "asset", "Crate", "modeling", usd_request(self.tmp.name, name="Crate")
+        )
+        self.assertTrue(result.passed)
+        self.assertEqual(
+            project.publishes("asset", "Crate", "modeling")[0]["user"], "Signer"
+        )
+
+        # Scene saves are signed the same way when no user is given.
+        path, version = project.next_scene_path("asset", "Crate", "modeling")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as handle:
+            handle.write("hip")
+        project.register_scene("asset", "Crate", "modeling", version, path)
+        self.assertEqual(project.scenes("asset", "Crate", "modeling")[0]["user"], "Signer")
+
+
 class ProjectTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -222,6 +276,38 @@ class ProjectTests(unittest.TestCase):
         create_project("Gamma", hub_root=self.hub)
         with self.assertRaises(ValueError):
             create_project("Gamma", hub_root=self.hub)
+
+    def test_external_location_and_registry(self):
+        shared = os.path.join(self.tmp.name, "shared_drive")
+        os.makedirs(shared)
+        project = create_project("Orbital", hub_root=self.hub, location=shared)
+        self.assertEqual(project.root, os.path.join(shared, "Orbital"))
+        self.assertTrue(os.path.isfile(os.path.join(self.hub, config.REGISTRY_FILE)))
+
+        # Resolvable and listed alongside hub-local projects.
+        self.assertEqual(get_project("Orbital", self.hub).root, project.root)
+        create_project("Local", hub_root=self.hub)
+        listed = {p["name"]: p for p in list_projects(self.hub)}
+        self.assertEqual(set(listed), {"Local", "Orbital"})
+        self.assertTrue(listed["Orbital"]["external"])
+        self.assertFalse(listed["Local"]["external"])
+
+        # Same-name collisions and bad locations are rejected.
+        with self.assertRaises(ValueError):
+            create_project("Orbital", hub_root=self.hub)
+        with self.assertRaises(ValueError):
+            create_project("Elsewhere", hub_root=self.hub, location="/does/not/exist")
+
+        # Scene context parses from the external root too.
+        project.create_entity("asset", "Ship")
+        project.create_task("asset", "Ship", "modeling")
+        path, version = project.next_scene_path("asset", "Ship", "modeling")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as handle:
+            handle.write("hip")
+        context = parse_scene_path(path, self.hub)
+        self.assertEqual(context["project"], "Orbital")
+        self.assertEqual(context["entity"], "Ship")
 
     def test_entities_and_tasks(self):
         project = create_project("Delta", hub_root=self.hub)
@@ -433,11 +519,15 @@ class CliTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def cli(self, *args, expect_failure=False):
+        env = dict(os.environ)
+        env[user.ENV_USER_FILE] = os.path.join(self.tmp.name, "user.json")
+        env.pop(user.ENV_USER, None)
         completed = subprocess.run(
             [sys.executable, "-m", "fivehub.cli", "--hub", self.hub, *args],
             cwd=REPO,
             capture_output=True,
             text=True,
+            env=env,
         )
         if expect_failure:
             self.assertNotEqual(completed.returncode, 0)
@@ -450,12 +540,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual(info["root"], os.path.abspath(self.hub))
         self.assertEqual(info["default_format"], "usd")
         self.assertIn("modeling", info["default_tasks"])
+        self.assertEqual(info["user"], "")  # nobody logged in yet
+
+        self.assertEqual(self.cli("whoami")["user"], "")
+        self.assertEqual(self.cli("login", "Chan")["user"], "Chan")
+        self.assertEqual(self.cli("whoami")["user"], "Chan")
+        self.assertEqual(self.cli("root")["user"], "Chan")
 
         image = os.path.join(self.tmp.name, "poster.png")
         write_placeholder_png(image)
         created = self.cli("project-create", "Mars", "--image", image)
         self.assertTrue(os.path.isfile(created["project"]["image_path"]))
         self.cli("project-create", "Mars", expect_failure=True)
+
+        shared = os.path.join(self.tmp.name, "shared")
+        os.makedirs(shared)
+        external = self.cli("project-create", "Orbital", "--location", shared)
+        self.assertTrue(external["project"]["root"].startswith(shared))
 
         self.cli("entity-create", "Mars", "asset", "Rover")
         self.cli("task-create", "Mars", "asset", "Rover", "modeling")
@@ -467,7 +568,9 @@ class CliTests(unittest.TestCase):
 
         self.cli("demo")
         projects = self.cli("projects")["projects"]
-        self.assertEqual([p["name"] for p in projects], ["DemoProject", "Mars"])
+        self.assertEqual(
+            [p["name"] for p in projects], ["DemoProject", "Mars", "Orbital"]
+        )
 
         info = self.cli("task-info", "DemoProject", "asset", "DemoCrate", "modeling")
         self.assertEqual(len(info["publishes"]), 2)
@@ -478,6 +581,11 @@ class CliTests(unittest.TestCase):
         log = self.cli("log", "DemoProject")["log"]
         self.assertEqual(len(log), 4)
         self.assertEqual(log[0]["format"], "vdb")
+
+        activity = self.cli("activity", "DemoProject")
+        self.assertEqual(len(activity["publishes"]), 4)
+        self.assertEqual(activity["scenes"], [])
+        self.cli("activity", "Nowhere", expect_failure=True)
 
         sent = self.cli("send", "DemoProject", "asset", "DemoCrate", "modeling")
         self.assertTrue(sent["selection"]["path"].endswith("DemoCrate.usda"))

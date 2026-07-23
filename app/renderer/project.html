@@ -21,28 +21,28 @@
           <section>
             <div class="section-head">
               <div class="label">ASSETS</div>
-              <div class="form-row">
-                <input type="text" id="new-asset" placeholder="NEW ASSET" />
-                <button class="btn" id="add-asset">+</button>
-              </div>
+              <button class="btn round" id="add-asset" title="New asset" aria-label="New asset">+</button>
             </div>
             <div id="assets" class="entity-list"></div>
           </section>
           <section>
             <div class="section-head">
               <div class="label">SHOTS</div>
-              <div class="form-row">
-                <input type="text" id="new-shot" placeholder="NEW SHOT" />
-                <button class="btn" id="add-shot">+</button>
-              </div>
+              <button class="btn round" id="add-shot" title="New shot" aria-label="New shot">+</button>
             </div>
             <div id="shots" class="entity-list"></div>
           </section>
         </div>
+        <section>
+          <div class="section-head">
+            <div class="label">ACTIVITY — THIS PROJECT ONLY</div>
+          </div>
+          <div id="activity"></div>
+        </section>
       </div>
     </main>
     <footer class="bar">
-      <div class="label mono" id="project-path"></div>
+      <div class="mono" id="project-path"></div>
     </footer>
   </div>
   <script src="common.js"></script>

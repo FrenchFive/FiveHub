@@ -13,6 +13,7 @@ import sys
 from . import __version__, config
 from .project import create_project, get_project, list_projects
 from .report import ValidationReport, utc_now
+from .user import get_user, logged_in, set_user
 
 
 def cmd_root(root, _args):
@@ -24,7 +25,16 @@ def cmd_root(root, _args):
         "formats": list(config.FORMATS),
         "default_format": config.DEFAULT_FORMAT,
         "default_tasks": list(config.DEFAULT_TASKS),
+        "user": get_user() if logged_in() else "",
     }
+
+
+def cmd_login(_root, args):
+    return {"user": set_user(args.name)}
+
+
+def cmd_whoami(_root, _args):
+    return {"user": get_user() if logged_in() else "", "fallback": get_user()}
 
 
 def cmd_projects(root, _args):
@@ -32,8 +42,14 @@ def cmd_projects(root, _args):
 
 
 def cmd_project_create(root, args):
-    project = create_project(args.name, image=args.image or None, hub_root=root)
+    project = create_project(
+        args.name,
+        image=args.image or None,
+        hub_root=root,
+        location=args.location or None,
+    )
     return {"project": {"name": project.name, **project.meta(),
+                        "root": project.root,
                         "image_path": project.image_path()}}
 
 
@@ -83,6 +99,16 @@ def cmd_report(root, args):
 def cmd_log(root, args):
     project = get_project(args.project, root)
     return {"log": project.db.publish_history(limit=args.limit)}
+
+
+def cmd_activity(root, args):
+    """Project-scoped recent activity: publishes and scene saves."""
+    project = get_project(args.project, root)
+    return {
+        "project": args.project,
+        "publishes": project.db.publish_history(limit=args.limit),
+        "scenes": project.db.recent_scenes(limit=args.limit),
+    }
 
 
 def cmd_send(root, args):
@@ -149,9 +175,23 @@ def build_parser():
         func=cmd_projects
     )
 
+    login = commands.add_parser("login", help="set the name that signs your publishes")
+    login.add_argument("name")
+    login.set_defaults(func=cmd_login)
+
+    commands.add_parser("whoami", help="current signing identity").set_defaults(
+        func=cmd_whoami
+    )
+
     create = commands.add_parser("project-create", help="create a project")
     create.add_argument("name")
     create.add_argument("--image", default="", help="image file for the project")
+    create.add_argument(
+        "--location",
+        default="",
+        help="directory the project should live in (shared drive, repo, ...);"
+        " defaults to the hub's projects directory",
+    )
     create.set_defaults(func=cmd_project_create)
 
     entity = commands.add_parser("entity-create", help="create an asset or shot")
@@ -186,6 +226,13 @@ def build_parser():
     log.add_argument("project")
     log.add_argument("--limit", type=int, default=100)
     log.set_defaults(func=cmd_log)
+
+    activity = commands.add_parser(
+        "activity", help="project-scoped recent publishes and scene saves"
+    )
+    activity.add_argument("project")
+    activity.add_argument("--limit", type=int, default=20)
+    activity.set_defaults(func=cmd_activity)
 
     send = commands.add_parser("send", help="stage a publish for the Houdini import tool")
     send.add_argument("project")

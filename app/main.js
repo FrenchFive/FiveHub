@@ -142,9 +142,15 @@ function openReport(reportPath) {
 
 ipcMain.handle("hub:root", () => runCli(["root"]));
 ipcMain.handle("hub:projects", () => runCli(["projects"]));
-ipcMain.handle("hub:projectCreate", (_event, name, image) => {
+ipcMain.handle("hub:login", (_event, name) => runCli(["login", name]));
+ipcMain.handle("hub:whoami", () => runCli(["whoami"]));
+ipcMain.handle("hub:activity", (_event, project, limit) =>
+  runCli(["activity", project, "--limit", String(limit || 20)]),
+);
+ipcMain.handle("hub:projectCreate", (_event, name, image, location) => {
   const args = ["project-create", name];
   if (image) args.push("--image", image);
+  if (location) args.push("--location", location);
   return runCli(args);
 });
 ipcMain.handle("hub:entityCreate", (_event, project, kind, name) =>
@@ -180,11 +186,66 @@ ipcMain.handle("os:copy", (_event, text) => clipboard.writeText(text));
 ipcMain.handle("os:pickImage", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const picked = await dialog.showOpenDialog(win, {
-    title: "PROJECT IMAGE",
+    title: "Project image",
     properties: ["openFile"],
     filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp"] }],
   });
   return picked.canceled ? null : picked.filePaths[0];
+});
+ipcMain.handle("os:pickFolder", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const picked = await dialog.showOpenDialog(win, {
+    title: "Project location",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return picked.canceled ? null : picked.filePaths[0];
+});
+
+// -- houdini launcher ----------------------------------------------------
+
+let houdiniBinary; // undefined = not probed yet, null = not found
+
+function resolveHoudini() {
+  if (houdiniBinary !== undefined) return houdiniBinary;
+  if (process.env.FIVEHUB_HOUDINI) {
+    houdiniBinary = process.env.FIVEHUB_HOUDINI;
+    return houdiniBinary;
+  }
+  const probe = process.platform === "win32" ? "where" : "which";
+  for (const candidate of ["houdinifx", "houdini", "houdinicore", "hindie"]) {
+    try {
+      const result = spawnSync(probe, [candidate], { timeout: 4000 });
+      if (result.status === 0) {
+        houdiniBinary = candidate;
+        return candidate;
+      }
+    } catch {
+      // keep looking
+    }
+  }
+  houdiniBinary = null;
+  return null;
+}
+
+ipcMain.handle("os:openScene", async (_event, sceneFile) => {
+  const binary = resolveHoudini();
+  if (binary) {
+    const child = spawn(binary, [sceneFile], {
+      detached: true,
+      stdio: "ignore",
+      env: process.env,
+    });
+    child.unref();
+    return { via: "houdini", binary };
+  }
+  // No binary on PATH — fall back to the OS association for .hip files.
+  const error = await shell.openPath(sceneFile);
+  if (error) {
+    throw new Error(
+      "Houdini not found. Set FIVEHUB_HOUDINI to your houdini binary. (" + error + ")",
+    );
+  }
+  return { via: "os" };
 });
 
 // -- lifecycle -----------------------------------------------------------

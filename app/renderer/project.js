@@ -1,18 +1,111 @@
-// Project window — assets and shots, their tasks, and creation of both.
+// Project window — everything here is scoped to one project: its assets,
+// shots, tasks and a project-only activity feed. Creation happens in
+// sheets opened by the + buttons, never inline.
 
 const { name: projectName } = queryParams();
 let defaultTasks = [];
 
-function cliError(error) {
-  toast(String(error.message || error).replace(/^Error[:] ?/i, "").toUpperCase());
+async function entitySheet(kind) {
+  const values = await openSheet({
+    title: kind === "asset" ? "New asset" : "New shot",
+    submitLabel: "CREATE",
+    build(body) {
+      const nameField = sheetField(body, "NAME");
+      const nameInput = el("input");
+      nameInput.type = "text";
+      nameInput.placeholder = kind === "asset" ? "e.g. WoodenCrate" : "e.g. SH010";
+      nameField.appendChild(nameInput);
+
+      // Pick the tasks to set up right away — toggles, not free inputs.
+      const tasksField = sheetField(body, "TASKS TO CREATE");
+      const chips = el("div", "chips");
+      const selected = new Set();
+      for (const task of defaultTasks) {
+        const chip = el("button", "chip toggle", task);
+        chip.addEventListener("click", () => {
+          if (selected.has(task)) {
+            selected.delete(task);
+            chip.classList.remove("on");
+          } else {
+            selected.add(task);
+            chip.classList.add("on");
+          }
+        });
+        chips.appendChild(chip);
+      }
+      tasksField.appendChild(chips);
+
+      const extraField = sheetField(body, "EXTRA TASK (OPTIONAL)");
+      const extraInput = el("input");
+      extraInput.type = "text";
+      extraInput.placeholder = "e.g. groom";
+      extraField.appendChild(extraInput);
+
+      return () => {
+        const name = nameInput.value.trim();
+        if (!name) return null;
+        const tasks = [...selected];
+        const extra = extraInput.value.trim();
+        if (extra) tasks.push(extra);
+        return { name, tasks };
+      };
+    },
+  });
+  if (!values) return;
+  try {
+    await window.fivehub.entityCreate(projectName, kind, values.name);
+    for (const task of values.tasks) {
+      await window.fivehub.taskCreate(projectName, kind, values.name, task);
+    }
+    toast(kind.toUpperCase() + " CREATED");
+    await load();
+  } catch (error) {
+    toast(cliErrorText(error).toUpperCase());
+  }
+}
+
+async function taskSheet(kind, entityName) {
+  const values = await openSheet({
+    title: `New task on ${entityName}`,
+    submitLabel: "CREATE",
+    build(body) {
+      const nameField = sheetField(body, "TASK NAME");
+      const nameInput = el("input");
+      nameInput.type = "text";
+      nameInput.placeholder = "e.g. modeling";
+      nameField.appendChild(nameInput);
+
+      const suggestField = sheetField(body, "SUGGESTIONS");
+      const chips = el("div", "chips");
+      for (const task of defaultTasks) {
+        const chip = el("button", "chip", task);
+        chip.addEventListener("click", () => {
+          nameInput.value = task;
+          nameInput.focus();
+        });
+        chips.appendChild(chip);
+      }
+      suggestField.appendChild(chips);
+
+      return () => {
+        const name = nameInput.value.trim();
+        return name ? { name } : null;
+      };
+    },
+  });
+  if (!values) return;
+  try {
+    await window.fivehub.taskCreate(projectName, kind, entityName, values.name);
+    toast("TASK CREATED");
+    await load();
+  } catch (error) {
+    toast(cliErrorText(error).toUpperCase());
+  }
 }
 
 function entityBlock(kind, entity) {
   const block = el("div", "entity-block");
-
-  const head = el("div", "entity-head");
-  head.appendChild(el("div", "name", entity.name));
-  block.appendChild(head);
+  block.appendChild(el("div", "name", entity.name));
 
   const chips = el("div", "chips");
   for (const task of entity.tasks) {
@@ -31,33 +124,10 @@ function entityBlock(kind, entity) {
     );
     chips.appendChild(chip);
   }
-
-  const addRow = el("div", "form-row");
-  const input = el("input");
-  input.type = "text";
-  input.placeholder = "NEW TASK";
-  input.setAttribute("list", "task-suggestions");
-  const button = el("button", "btn", "+");
-  const create = async () => {
-    const task = input.value.trim();
-    if (!task) return;
-    try {
-      await window.fivehub.taskCreate(projectName, kind, entity.name, task);
-      toast("TASK CREATED");
-      await load();
-    } catch (error) {
-      cliError(error);
-    }
-  };
-  button.addEventListener("click", create);
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") create();
-  });
-  addRow.appendChild(input);
-  addRow.appendChild(button);
-
+  const addChip = el("button", "chip add", "+ TASK");
+  addChip.addEventListener("click", () => taskSheet(kind, entity.name));
+  chips.appendChild(addChip);
   block.appendChild(chips);
-  block.appendChild(addRow);
   return block;
 }
 
@@ -65,58 +135,63 @@ function fillColumn(containerId, kind, entities) {
   const container = document.getElementById(containerId);
   clear(container);
   if (!entities.length) {
-    container.appendChild(el("div", "label", "NONE YET"));
+    container.appendChild(el("div", "label", "NONE YET — USE +"));
     return;
   }
   for (const entity of entities) container.appendChild(entityBlock(kind, entity));
 }
 
-async function createEntity(kind, inputId) {
-  const input = document.getElementById(inputId);
-  const name = input.value.trim();
-  if (!name) return;
-  try {
-    await window.fivehub.entityCreate(projectName, kind, name);
-    input.value = "";
-    toast(kind.toUpperCase() + " CREATED");
-    await load();
-  } catch (error) {
-    cliError(error);
-  }
+document.getElementById("add-asset").addEventListener("click", () => entitySheet("asset"));
+document.getElementById("add-shot").addEventListener("click", () => entitySheet("shot"));
+
+function activityRow(entry) {
+  const row = el("div", "activity-row");
+  const isPublish = entry.type === "publish";
+  const blocked = isPublish && !entry.passed;
+  const typeChip = el(
+    "span",
+    "activity-type" + (blocked ? " blocked" : ""),
+    blocked ? "BLOCKED" : isPublish ? "PUBLISH" : "SAVE",
+  );
+  row.appendChild(typeChip);
+
+  const what = isPublish
+    ? `${(entry.format || "").toUpperCase()} ${
+        entry.version ? "v" + String(entry.version).padStart(3, "0") : ""
+      } · ${entry.entity} / ${entry.task}`.replace("  ", " ")
+    : `scene v${String(entry.version).padStart(3, "0")} · ${entry.entity} / ${entry.task}`;
+  row.appendChild(el("span", "what", what));
+  row.appendChild(el("span", "who", entry.user || "—"));
+  row.appendChild(el("span", "when", shortDate(entry.created_at)));
+  return row;
 }
 
-document.getElementById("add-asset").addEventListener("click", () =>
-  createEntity("asset", "new-asset"),
-);
-document.getElementById("add-shot").addEventListener("click", () =>
-  createEntity("shot", "new-shot"),
-);
-for (const [inputId, kind] of [["new-asset", "asset"], ["new-shot", "shot"]]) {
-  document.getElementById(inputId).addEventListener("keydown", (event) => {
-    if (event.key === "Enter") createEntity(kind, inputId);
-  });
+function renderActivity(activity) {
+  const container = document.getElementById("activity");
+  clear(container);
+  const entries = [
+    ...activity.publishes.map((p) => ({ ...p, type: "publish" })),
+    ...activity.scenes.map((s) => ({ ...s, type: "scene" })),
+  ]
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    .slice(0, 12);
+  if (!entries.length) {
+    container.appendChild(el("div", "label", "NO ACTIVITY YET"));
+    return;
+  }
+  const list = el("div", "activity-list");
+  for (const entry of entries) list.appendChild(activityRow(entry));
+  container.appendChild(list);
 }
 
 async function load() {
   try {
-    const [{ project }, rootInfo] = await Promise.all([
+    const [{ project }, rootInfo, activity] = await Promise.all([
       window.fivehub.browse(projectName),
       window.fivehub.root(),
+      window.fivehub.activity(projectName),
     ]);
     defaultTasks = rootInfo.default_tasks || [];
-
-    let datalist = document.getElementById("task-suggestions");
-    if (!datalist) {
-      datalist = el("datalist");
-      datalist.id = "task-suggestions";
-      document.body.appendChild(datalist);
-    }
-    clear(datalist);
-    for (const task of defaultTasks) {
-      const option = el("option");
-      option.value = task;
-      datalist.appendChild(option);
-    }
 
     document.title = "FIVEHUB — " + project.name;
     const counts = project.counts || {};
@@ -138,6 +213,7 @@ async function load() {
 
     fillColumn("assets", "asset", project.assets || []);
     fillColumn("shots", "shot", project.shots || []);
+    renderActivity(activity);
   } catch (error) {
     showError(document.querySelector("main .stack"), error);
   }

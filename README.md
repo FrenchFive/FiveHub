@@ -94,14 +94,15 @@ Every USD publish is a proper component asset, authored as dependency-free `usda
 
 ## THE APP :
 
-Standalone Electron app, separate windows. Mainly white, black ink, easy on artists' eyes: white cards on a soft `#F5F5F7` wash, rounded corners and pill controls, Apple-spring motion with metaball ambience — and **red (`#FF3B30`) reserved for critical states only** (blocked publishes, error-level rule failures):
+Standalone Electron app, separate windows. Mainly white, black ink, easy on artists' eyes: white cards on a soft `#F5F5F7` wash, rounded corners and pill controls, Apple-spring motion with metaball ambience — and **red (`#FF3B30`) reserved for critical states only** (blocked publishes, error-level rule failures). The full design contract lives in [STYLEGUIDE.md](STYLEGUIDE.md).
 
-- **PROJECTS** — project cards with image and counts; **create projects** (name + image picker); seed the demo
-- **PROJECT** — one window per project: ASSETS and SHOTS columns, **create entities and tasks** in place (task suggestions built in), task chips with scene/publish counts
-- **TASK** — one window per task: work scene versions with notes and user, publishes with format/version/variant, PASS/FAIL status, report, SEND TO HOUDINI, copy paths
-- **VALIDATION** — one window per report: verdict plus the full rule breakdown
+- **LOGIN** — first launch asks for a name (that's the whole login); every scene save and publish is **signed with that name and timestamped** for traceability. Change it any time with `fivehub.cli login`.
+- **PROJECTS** — project cards with image and counts. **NEW PROJECT opens a sheet**: name, **where the project lives** (hub default, or any folder — shared drive, synced repo, a spot on your disk; external projects are tracked in the hub registry and marked LINKED), and an image.
+- **PROJECT** — one window per project, and **everything in it is scoped to that project**: ASSETS and SHOTS columns with round `+` buttons (each opens a creation sheet — entity name plus the tasks to set up as toggles), task chips with scene/publish counts, and a project-only ACTIVITY feed (recent publishes and scene saves, blocked ones in red).
+- **TASK** — one window per task: work scene versions with notes/user/date and an **OPEN IN HOUDINI** button per version (launches Houdini with that exact scene — set `FIVEHUB_HOUDINI` if the binary isn't on PATH); publishes with format/version/variant, PASS/FAIL status, report, SEND TO HOUDINI, copy paths.
+- **VALIDATION** — one window per report: verdict plus the full rule breakdown.
 
-The app owns no pipeline logic — every action shells out to `python -m fivehub.cli` (JSON), so disk and databases have a single implementation.
+All creation flows live in modal sheets (never inline inputs); `+` always opens a sheet. The app owns no pipeline logic — every action shells out to `python -m fivehub.cli` (JSON), so disk and databases have a single implementation.
 
 ```
 cd app
@@ -132,13 +133,17 @@ The hub root defaults to `<repo>/hub`; point `FIVEHUB_ROOT` at a shared location
 Every command prints JSON:
 
 ```
+python -m fivehub.cli login "Ana"                 # signs your saves + publishes
+python -m fivehub.cli whoami
 python -m fivehub.cli projects
 python -m fivehub.cli project-create Mars --image poster.png
+python -m fivehub.cli project-create Orbital --location /mnt/shared   # external project
 python -m fivehub.cli entity-create Mars asset Rover
 python -m fivehub.cli task-create Mars asset Rover modeling
 python -m fivehub.cli browse Mars
 python -m fivehub.cli task-info Mars asset Rover modeling
 python -m fivehub.cli send Mars asset Rover modeling --format usd
+python -m fivehub.cli activity Mars               # project-scoped recent activity
 python -m fivehub.cli log Mars
 python -m fivehub.cli report --path <report.json>
 python -m fivehub.cli demo
@@ -148,7 +153,7 @@ python -m fivehub.cli --hub /mnt/pipeline projects
 ## DEVELOPMENT :
 
 ```
-python -m unittest discover -s tests -v    # 29 tests, no external deps
+python -m unittest discover -s tests -v    # 33 tests, no external deps
 python -m fivehub.cli demo                 # demo project for the app
 ```
 

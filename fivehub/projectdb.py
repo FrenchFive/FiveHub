@@ -255,6 +255,18 @@ class ProjectDB:
         with self._connect() as conn:
             return [dict(row) for row in conn.execute(query, (int(limit),)).fetchall()]
 
+    def recent_scenes(self, limit=20):
+        """Whole-project scene saves with entity/task context, newest first."""
+        query = """
+            SELECT s.*, t.name AS task, e.name AS entity, e.kind AS kind
+            FROM scene s
+            JOIN task t ON t.id = s.task_id
+            JOIN entity e ON e.id = t.entity_id
+            ORDER BY s.created_at DESC, s.rowid DESC LIMIT ?
+        """
+        with self._connect() as conn:
+            return [dict(row) for row in conn.execute(query, (int(limit),)).fetchall()]
+
     def counts(self):
         with self._connect() as conn:
             entities = conn.execute(

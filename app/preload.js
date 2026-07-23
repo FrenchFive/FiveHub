@@ -6,7 +6,11 @@ contextBridge.exposeInMainWorld("fivehub", {
 
   root: () => ipcRenderer.invoke("hub:root"),
   projects: () => ipcRenderer.invoke("hub:projects"),
-  projectCreate: (name, image) => ipcRenderer.invoke("hub:projectCreate", name, image),
+  login: (name) => ipcRenderer.invoke("hub:login", name),
+  whoami: () => ipcRenderer.invoke("hub:whoami"),
+  activity: (project, limit) => ipcRenderer.invoke("hub:activity", project, limit),
+  projectCreate: (name, image, location) =>
+    ipcRenderer.invoke("hub:projectCreate", name, image, location),
   entityCreate: (project, kind, name) =>
     ipcRenderer.invoke("hub:entityCreate", project, kind, name),
   taskCreate: (project, kind, entity, name) =>
@@ -26,4 +30,6 @@ contextBridge.exposeInMainWorld("fivehub", {
   reveal: (target) => ipcRenderer.invoke("os:reveal", target),
   copy: (text) => ipcRenderer.invoke("os:copy", text),
   pickImage: () => ipcRenderer.invoke("os:pickImage"),
+  pickFolder: () => ipcRenderer.invoke("os:pickFolder"),
+  openScene: (file) => ipcRenderer.invoke("os:openScene", file),
 });

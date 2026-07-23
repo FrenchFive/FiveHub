@@ -30,6 +30,9 @@ ENV_ROOT = "FIVEHUB_ROOT"
 
 PROJECTS_DIR = "projects"
 EXCHANGE_DIR = "exchange"
+# Registry of projects living outside the default projects/ directory
+# (shared drives, synced folders, repositories — the user picks a location).
+REGISTRY_FILE = "registry.json"
 
 PROJECT_FILE = "project.json"
 PROJECT_DB = "project.db"

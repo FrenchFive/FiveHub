@@ -30,7 +30,18 @@ function scenesTable(scenes) {
     row.appendChild(el("td", null, scene.user || "—"));
     row.appendChild(el("td", null, shortDate(scene.created_at)));
     row.appendChild(el("td", null, scene.notes || "—"));
-    const actions = el("td");
+    const actions = el("td", "row-actions");
+    const openBtn = el("button", "btn solid", "OPEN IN HOUDINI");
+    openBtn.prepend(houdiniGlyph());
+    openBtn.addEventListener("click", async () => {
+      try {
+        toast("OPENING " + padVersion(scene.version) + " IN HOUDINI…");
+        await window.fivehub.openScene(scene.file);
+      } catch (error) {
+        toast(cliErrorText(error).toUpperCase());
+      }
+    });
+    actions.appendChild(openBtn);
     const copyBtn = el("button", "btn", "COPY PATH");
     copyBtn.addEventListener("click", async () => {
       await window.fivehub.copy(scene.file);
