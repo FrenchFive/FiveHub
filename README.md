@@ -126,9 +126,10 @@ Package installers: `cd app && npm install && npm run dist` (electron-builder �
 ## SETUP :
 
 1. Clone where the pipeline lives (server share for teams) and point everyone's `FIVEHUB_ROOT` at the same hub directory.
-2. Per workstation: `python houdini/install.py` (writes one Houdini package file; delete it to uninstall).
-3. App: `cd app && npm install` (or distribute a built installer).
-4. Server: a cron for `python -m fivehub.cli backup`, and `python -m fivehub.cli worker` as a service for renders.
+2. Per workstation: `python houdini/install.py` (writes one Houdini package file; delete it to uninstall). The package also sets the **FIVE HUB splash screen** — Houdini launches wearing the pipeline (goop, Satoshi Black wordmark, FiveHub + Houdini versions, license type). Regenerate it with your session's real facts via `fivehub.cli splash` or **Pipeline Tools ▸ Regenerate FiveHub Splash**.
+3. (Optional, recommended) Drop the free **Satoshi** family into `assets/fonts/` — see its README — so the app, Qt windows and splash wear the brand typeface; everything falls back to system fonts without it.
+4. App: `cd app && npm install` (or distribute a built installer).
+5. Server: a cron for `python -m fivehub.cli backup`, and `python -m fivehub.cli worker` as a service for renders.
 
 Env vars: `FIVEHUB_ROOT` (hub), `FIVEHUB_USER` (identity override), `FIVEHUB_HOUDINI` (GUI binary for the app's open buttons), `FIVEHUB_HYTHON` (worker), `FIVEHUB_PYTHON` (app→CLI bridge).
 

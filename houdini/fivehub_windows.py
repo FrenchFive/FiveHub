@@ -28,11 +28,14 @@ from fivehub.project import get_project, list_projects
 STYLE = """
 QDialog { background: #f5f5f7; }
 QWidget { background: transparent; color: #0b0b0c;
-    font-family: "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-family: "Satoshi", "SF Pro Text", "Segoe UI", "Helvetica Neue",
+    Arial, sans-serif;
     font-size: 12px; }
 QLabel { background: transparent; }
-QLabel#heading { font-size: 21px; font-weight: 700; }
-QLabel#headingFail { font-size: 21px; font-weight: 700; color: #ff3b30; }
+QLabel#heading { font-family: "Satoshi Black", "Satoshi", sans-serif;
+    font-size: 21px; font-weight: 900; }
+QLabel#headingFail { font-family: "Satoshi Black", "Satoshi", sans-serif;
+    font-size: 21px; font-weight: 900; color: #ff3b30; }
 QLabel#hint { font-size: 10px; font-weight: 600; letter-spacing: 1px;
     color: #6e6e73; }
 QLabel#context { background: #ffffff; border: 1px solid rgba(0, 0, 0, 40);

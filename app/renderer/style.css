@@ -1,7 +1,19 @@
 /* FiveHub — mainly white, black ink, one red accent.
    Modern, rounded, liquid: white surfaces on a soft wash, pill controls,
    Apple-spring motion, metaball decoration. Red (#FF3B30) is reserved for
-   blocking states only — FAIL chips, error rules, the blocked verdict. */
+   blocking states only — FAIL chips, error rules, the blocked verdict.
+
+   Typeface: Satoshi (drop the family into assets/fonts/ — see its README;
+   graceful system fallback without it). FIVE HUB titles are Satoshi Black. */
+
+@font-face {
+  font-family: "Satoshi";
+  src: local("Satoshi Variable"), local("Satoshi"),
+    url("../../assets/fonts/Satoshi-Variable.woff2") format("woff2"),
+    url("../../assets/fonts/Satoshi-Variable.ttf") format("truetype");
+  font-weight: 300 900;
+  font-display: swap;
+}
 
 :root {
   --wash: #f5f5f7;
@@ -41,8 +53,8 @@ body {
 body {
   background: var(--wash);
   color: var(--ink);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: "Satoshi", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-weight: 400;
   font-size: 14px;
   letter-spacing: -0.006em;
@@ -76,16 +88,17 @@ body {
 
 /* -- type ------------------------------------------------------------- */
 
+/* FIVE HUB always wears Satoshi Black (900). */
 .brand {
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 900;
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
 
 .title {
   font-size: 32px;
-  font-weight: 700;
+  font-weight: 900;
   letter-spacing: -0.02em;
   word-break: break-word;
 }
