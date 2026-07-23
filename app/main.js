@@ -337,46 +337,37 @@ ipcMain.handle("os:openScene", async (_event, sceneFile, projectRoot) => {
 });
 
 // -- self-update ---------------------------------------------------------
+//
+// Nothing updates behind the user's back: windows open immediately, the
+// renderer runs the version check in the background and offers a small
+// dismissible popup when a newer version exists. Accepting pulls and
+// relaunches; dismissing keeps the popup away until the next app boot —
+// the flag lives here so it covers every window for this process's life.
+// FIVEHUB_NO_AUTOUPDATE=1 mutes the popup (the header button still works).
 
-ipcMain.handle("hub:updateCheck", () => runCli(["update", "--check"]));
+let updateOfferDismissed = Boolean(process.env.FIVEHUB_NO_AUTOUPDATE);
+
+ipcMain.handle("hub:updateCheck", async () => {
+  const result = await runCli(["update", "--check"]);
+  result.dismissed = updateOfferDismissed;
+  return result;
+});
+ipcMain.handle("hub:updateDismiss", () => {
+  updateOfferDismissed = true;
+});
 ipcMain.handle("hub:updateRun", async () => {
   const result = await runCli(["update"]);
   if (result.update && result.update.updated) {
     // Relaunch so every window runs the freshly pulled code.
-    app.relaunch({ env: { ...process.env, FIVEHUB_RELAUNCHED: "1" } });
+    app.relaunch();
     app.exit(0);
   }
   return result;
 });
 
-// On launch: pull the latest pipeline before showing windows (best-effort,
-// short timeout — offline or non-git installs just proceed). Guarded so a
-// relaunch never updates again in a loop.
-async function autoUpdateOnLaunch() {
-  if (process.env.FIVEHUB_RELAUNCHED || process.env.FIVEHUB_NO_AUTOUPDATE) {
-    return false;
-  }
-  try {
-    const result = await Promise.race([
-      runCli(["update"]),
-      new Promise((resolve) => setTimeout(() => resolve(null), 20000)),
-    ]);
-    if (result && result.update && result.update.updated) {
-      app.relaunch({ env: { ...process.env, FIVEHUB_RELAUNCHED: "1" } });
-      app.exit(0);
-      return true;
-    }
-  } catch {
-    // offline / dirty checkout — the header button still offers updates
-  }
-  return false;
-}
-
 // -- lifecycle -----------------------------------------------------------
 
-app.whenReady().then(async () => {
-  const relaunching = await autoUpdateOnLaunch();
-  if (relaunching) return;
+app.whenReady().then(() => {
   openProjects();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) openProjects();

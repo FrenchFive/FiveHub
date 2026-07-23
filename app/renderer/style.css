@@ -1055,6 +1055,43 @@ tbody tr:hover {
   bottom: 30px;
 }
 
+/* -- update popup (small, dismissible, never blocks) -------------------- */
+
+.popup {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  width: 320px;
+  background: var(--surface);
+  border: var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lift);
+  padding: 18px 18px 16px;
+  z-index: 90;
+  opacity: 0;
+  transform: translateY(18px) scale(0.96);
+  transition: transform 0.34s var(--pop), opacity 0.24s var(--spring);
+}
+
+.popup.show {
+  opacity: 1;
+  transform: none;
+}
+
+.popup-text {
+  margin: 8px 0 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+
+.popup-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 /* -- metaballs (ambient, decorative) ----------------------------------- */
 
 .goo-defs {
