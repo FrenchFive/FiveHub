@@ -1311,6 +1311,33 @@ class VersionBumpTests(unittest.TestCase):
             self.assertEqual(json.load(handle)["version"], version)
 
 
+class HoudiniDetectTests(unittest.TestCase):
+    def test_find_houdini_walks_installs_newest_first(self):
+        import importlib.util
+        from unittest import mock
+
+        spec = importlib.util.spec_from_file_location(
+            "fivehub_installer", os.path.join(REPO, "install.py"))
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            newest = os.path.join(tmp, "hfs20.5.487", "bin")
+            older = os.path.join(tmp, "hfs19.5.605", "bin")
+            os.makedirs(newest)
+            os.makedirs(older)
+            with open(os.path.join(older, "houdinifx"), "w") as handle:
+                handle.write("")
+            with open(os.path.join(newest, "houdini"), "w") as handle:
+                handle.write("")
+            with mock.patch.dict(os.environ):
+                os.environ.pop("HFS", None)
+                found = installer.find_houdini(base=tmp)
+            # The newest version wins even when it only carries a lesser
+            # binary than an older install.
+            self.assertEqual(found, os.path.join(newest, "houdini"))
+
+
 class UninstallerTests(unittest.TestCase):
     def test_uninstall_removes_installed_pieces(self):
         # Install into a sandbox HOME, then uninstall: the Houdini package,

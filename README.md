@@ -133,7 +133,10 @@ One step. Clone, then:
 That's the whole install. It sets up, best-effort with a clear summary (a
 failed step never blocks the rest): the **Houdini package** into every
 Houdini preferences folder found (menu + shelf + splash; delete
-`packages/fivehub.json` to uninstall), **Pillow**, the **Satoshi fonts**
+`packages/fivehub.json` to uninstall), the **Houdini binary location**
+(recorded in `~/.fivehub/machine.json` so the app's open/launch buttons
+work with zero setup — if it ever goes missing the app asks you to point
+at houdini once and remembers), **Pillow**, the **Satoshi fonts**
 (downloaded from Fontshare into `assets/fonts/` — your download, never
 shipped in the repo), the generated **splash screen**, and the **app
 dependencies** (`npm install`, when Node.js is present).

@@ -10,6 +10,7 @@
 const { app, BrowserWindow, ipcMain, shell, clipboard, dialog } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -257,6 +258,36 @@ ipcMain.handle("os:pickFolder", async (event) => {
 
 // -- houdini launcher ----------------------------------------------------
 
+// The installer records the detected binary here; the app re-records it
+// whenever it rediscovers Houdini (or the user picks it once).
+const MACHINE_FILE = path.join(os.homedir(), ".fivehub", "machine.json");
+
+function storedHoudini() {
+  try {
+    const stored = JSON.parse(fs.readFileSync(MACHINE_FILE, "utf8")).houdini;
+    if (stored && fs.existsSync(stored)) return stored;
+  } catch {
+    // no machine file yet
+  }
+  return null;
+}
+
+function rememberHoudini(binary) {
+  try {
+    let data = {};
+    try {
+      data = JSON.parse(fs.readFileSync(MACHINE_FILE, "utf8"));
+    } catch {
+      // first write
+    }
+    data.houdini = binary;
+    fs.mkdirSync(path.dirname(MACHINE_FILE), { recursive: true });
+    fs.writeFileSync(MACHINE_FILE, JSON.stringify(data, null, 2));
+  } catch {
+    // read-only home — rediscover next launch
+  }
+}
+
 let houdiniBinary; // undefined = not probed yet, null = not found
 
 function resolveHoudini() {
@@ -264,6 +295,11 @@ function resolveHoudini() {
   if (process.env.FIVEHUB_HOUDINI) {
     houdiniBinary = process.env.FIVEHUB_HOUDINI;
     return houdiniBinary;
+  }
+  const stored = storedHoudini();
+  if (stored) {
+    houdiniBinary = stored;
+    return stored;
   }
   const probe = process.platform === "win32" ? "where" : "which";
   for (const candidate of ["houdinifx", "houdini", "houdinicore", "hindie"]) {
@@ -278,6 +314,7 @@ function resolveHoudini() {
     }
   }
   houdiniBinary = findHoudiniInstall();
+  if (houdiniBinary) rememberHoudini(houdiniBinary);
   return houdiniBinary;
 }
 
@@ -361,8 +398,25 @@ ipcMain.handle("os:pickFiles", async (event, title) => {
 // Launch Houdini on a task with no scene yet: JOB + FH_* ride along so the
 // FIVE HUB Save Scene As dialog opens prefilled and creates the first
 // version in the right place.
-ipcMain.handle("os:launchHoudini", (_event, context, projectRoot) => {
-  const binary = resolveHoudini();
+ipcMain.handle("os:launchHoudini", async (event, context, projectRoot) => {
+  let binary = resolveHoudini();
+  if (!binary) {
+    // Last resort: point at houdini once — remembered in machine.json.
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const picked = await dialog.showOpenDialog(win, {
+      title: "Locate your Houdini executable (e.g. houdinifx)",
+      properties: ["openFile"],
+      filters:
+        process.platform === "win32"
+          ? [{ name: "Houdini", extensions: ["exe"] }]
+          : [],
+    });
+    if (!picked.canceled && picked.filePaths.length) {
+      binary = picked.filePaths[0];
+      houdiniBinary = binary;
+      rememberHoudini(binary);
+    }
+  }
   if (!binary) {
     throw new Error(
       "Houdini not found. Set FIVEHUB_HOUDINI to your houdini binary.",
