@@ -1,8 +1,22 @@
 const { contextBridge, ipcRenderer } = require("electron");
-const { pathToFileURL } = require("node:url");
+
+// file:// URL from an OS path, by hand: sandboxed preloads (Electron's
+// default) only get a url polyfill without pathToFileURL. Handles drive
+// letters (C:\...), UNC shares (\\server\...) and special characters.
+function fileUrl(target) {
+  const encoded = String(target)
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((part, index) =>
+      index === 0 && /^[A-Za-z]:$/.test(part) ? part : encodeURIComponent(part),
+    )
+    .join("/");
+  if (encoded.startsWith("//")) return "file:" + encoded; // \\server\share
+  return "file://" + (encoded.startsWith("/") ? "" : "/") + encoded;
+}
 
 contextBridge.exposeInMainWorld("fivehub", {
-  fileUrl: (target) => pathToFileURL(target).href,
+  fileUrl,
 
   root: () => ipcRenderer.invoke("hub:root"),
   projects: () => ipcRenderer.invoke("hub:projects"),
