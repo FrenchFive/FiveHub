@@ -26,6 +26,11 @@ from . import __version__, config
 GIT_TIMEOUT = 60
 _TAG_RE = re.compile(r"refs/tags/v(\d+)\.(\d+)\.(\d+)$")
 
+# Paths the pipeline regenerates on each machine (gitignored; clones from
+# before the ignore may still track them). Local changes there are
+# disposable by definition and must never block an update.
+GENERATED_PATHS = ("houdini/splash",)
+
 
 def _run(repo, *args, timeout=GIT_TIMEOUT):
     if not shutil.which("git"):
@@ -93,6 +98,9 @@ def update(repo=None):
         result["error"] = "not a git checkout — update by re-downloading FiveHub"
         return result
 
+    for generated in GENERATED_PATHS:
+        _run(repo, "checkout", "--", generated)  # no-op once untracked
+
     before_ok, before = _run(repo, "rev-parse", "HEAD")
     ok, output = _run(repo, "pull", "--ff-only", timeout=300)
     if not ok:
@@ -108,6 +116,7 @@ def update(repo=None):
     result["updated"] = True
     result["new"] = _read_pulled_version(repo)
     result["restart"] = ["app", "houdini"]
+    _ensure_splash(repo)
 
     _ok, changed = _run(repo, "diff", "--name-only", before, after)
     if "app/package.json" in changed:
@@ -124,6 +133,22 @@ def update(repo=None):
         else:
             result["npm"] = "npm not found — run npm install in app/"
     return result
+
+
+def _ensure_splash(repo):
+    """Re-render the machine-generated splash when a pull removed it (the
+    transition that stopped tracking it deletes the old tracked copy)."""
+    if os.path.normpath(repo) != os.path.normpath(config.repo_root()):
+        return
+    target = os.path.join(repo, "houdini", "splash", "fivehub_splash.png")
+    if os.path.isfile(target):
+        return
+    try:
+        from .tools import splash
+
+        splash.render(target)
+    except Exception:
+        pass  # no Pillow — Houdini shows its stock splash until reinstall
 
 
 def _read_pulled_version(repo):

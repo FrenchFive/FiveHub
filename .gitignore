@@ -14,6 +14,10 @@ __pycache__/
 app/node_modules/
 app/dist/
 
+# generated on each machine by the installer / updater — never commit
+app/package-lock.json
+houdini/splash/*.png
+
 # legacy locations
 /test
 /asset
