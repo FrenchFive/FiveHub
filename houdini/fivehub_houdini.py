@@ -202,13 +202,29 @@ def increment_save():
     return _save_into(context, values[0].strip())
 
 
+def scene_extension():
+    """The extension this Houdini's license actually writes — claiming any
+    other name would divorce the database from the file on disk (an
+    Apprentice save of x.hip silently lands in x.hipnc)."""
+    try:
+        category = hou.licenseCategory()
+        if category == hou.licenseCategoryType.Commercial:
+            return ".hip"
+        if category == hou.licenseCategoryType.Indie:
+            return ".hiplc"
+        return ".hipnc"  # Apprentice / ApprenticeHD / Education
+    except AttributeError:
+        return config.SCENE_EXTENSION
+
+
 def _save_into(context, notes):
     """Claim the version in the database first (multi-user safe), then save
     the hip at the claimed path, then complete — never overwrite a peer."""
     try:
         project = _ensure_context(context)
         path, version = project.claim_scene(
-            context["kind"], context["entity"], context["task"], get_user()
+            context["kind"], context["entity"], context["task"], get_user(),
+            extension=scene_extension(),
         )
     except (ValueError, RuntimeError) as error:
         _error(str(error))
@@ -287,6 +303,23 @@ def _sop_geometry(node):
     if category == hou.sopNodeTypeCategory():
         return node.geometry()
     raise ValueError("unsupported node type: %s" % node.path())
+
+
+def _volumes_only(nodes):
+    """True when the selection carries volume prims and no closed polygons
+    — the signal that a USD component is the wrong container."""
+    saw_volume = False
+    for node in nodes:
+        try:
+            geo = _sop_geometry(node)
+        except ValueError:
+            continue
+        for prim in geo.prims():
+            if prim.type() == hou.primType.Polygon and prim.isClosed():
+                return False
+            if prim.type().name() in ("VDB", "Volume"):
+                saw_volume = True
+    return saw_volume
 
 
 def _object_material(node):
@@ -537,7 +570,7 @@ def _capture_thumbnail(nodes, path):
 
 
 def publish():
-    from fivehub_windows import PublishDialog, exec_dialog, show_report
+    from fivehub_windows import PublishDialog, exec_dialog
 
     nodes = hou.selectedNodes()
     if not nodes:
@@ -570,6 +603,19 @@ def publish():
     if not values["name"]:
         _error("A publish name is required.")
         return None
+    return _run_publish(nodes, context, project, values)
+
+
+def _run_publish(nodes, context, project, values):
+    """Shared publish machinery — the Publish dialog and FIVEHUB PUBLISH
+    nodes both end here."""
+    from fivehub_windows import show_report
+
+    routed = ""
+    if values["format"] == "usd" and _volumes_only(nodes):
+        # A USD component is a polygon asset — volumes ship as VDB caches.
+        values["format"] = "vdb"
+        routed = "Volumes publish as VDB caches — auto-routed from USD."
 
     root = config.ensure_hub()
     thumbnail = os.path.join(
@@ -650,6 +696,7 @@ def publish():
             )
             extra = "\n".join(failures)
 
+        extra = "\n".join(part for part in (extra, routed) if part)
         header = (
             "PUBLISHED %s %s" % (values["format"].upper(), result.version_label)
             if result.passed
@@ -662,6 +709,93 @@ def publish():
             os.remove(thumbnail)
         if scratch and os.path.isdir(scratch):
             shutil.rmtree(scratch, ignore_errors=True)
+
+
+PUBLISH_FORMATS = ("usd", "bgeo", "vdb", "obj")
+
+
+def create_publish_node():
+    """Drop a FIVEHUB PUBLISH null after the selected SOP. The node OWNS
+    the publish — name, format, variant live on it — so anyone opening
+    the scene sees exactly what ships and republishes with one button."""
+    selected = hou.selectedNodes()
+    if not (selected and selected[0].type().category() == hou.sopNodeTypeCategory()):
+        _message("Select the SOP whose result should be published, then rerun.")
+        return None
+    source = selected[0]
+    context = _current_context()
+    default_name = naming.make_identifier(
+        (context or {}).get("entity") or source.name()
+    )
+
+    node = source.parent().createNode("null", "PUBLISH_" + default_name)
+    node.setFirstInput(source)
+
+    group = node.parmTemplateGroup()
+    folder = hou.FolderParmTemplate("fh_folder", "FIVE HUB PUBLISH")
+    folder.addParmTemplate(hou.StringParmTemplate(
+        "fh_name", "Publish Name", 1, default_value=(default_name,)))
+    folder.addParmTemplate(hou.MenuParmTemplate(
+        "fh_format", "Format", PUBLISH_FORMATS,
+        menu_labels=tuple(f.upper() for f in PUBLISH_FORMATS)))
+    folder.addParmTemplate(hou.StringParmTemplate(
+        "fh_variant", "Variant", 1, default_value=("default",)))
+    folder.addParmTemplate(hou.StringParmTemplate("fh_comment", "Comment", 1))
+    folder.addParmTemplate(hou.ToggleParmTemplate(
+        "fh_animated", "Animated (bake frame range)"))
+    folder.addParmTemplate(hou.IntParmTemplate(
+        "fh_fstart", "Frame Start", 1, default_expression=("$FSTART",)))
+    folder.addParmTemplate(hou.IntParmTemplate(
+        "fh_fend", "Frame End", 1, default_expression=("$FEND",)))
+    folder.addParmTemplate(hou.ButtonParmTemplate(
+        "fh_publish", "PUBLISH",
+        script_callback="__import__('fivehub_houdini').publish_from_node(kwargs['node'])",
+        script_callback_language=hou.scriptLanguage.Python,
+    ))
+    group.append(folder)
+    node.setParmTemplateGroup(group)
+
+    node.setColor(hou.Color((0.05, 0.05, 0.06)))
+    node.setDisplayFlag(True)
+    node.setRenderFlag(True)
+    node.moveToGoodPosition()
+    _message(
+        "PUBLISH node created.\nSet name/format once — from now on the "
+        "PUBLISH button on the node republishes exactly its input."
+    )
+    return node
+
+
+def publish_from_node(node):
+    """One click on a FIVEHUB PUBLISH node: the node's input chain is what
+    ships, its parms are the how — repeatable by anyone, no selection."""
+    context = _current_context()
+    if context is None:
+        _error(
+            "This scene is not saved in the pipeline.\n\nUse FIVE HUB > "
+            "Save Scene As... first — the publish target comes from it."
+        )
+        return None
+    try:
+        project = get_project(context["project"])
+        project._task_record(context["kind"], context["entity"], context["task"])
+    except ValueError as error:
+        _error(str(error))
+        return None
+    values = {
+        "name": node.evalParm("fh_name").strip()
+        or naming.make_identifier(context["entity"]),
+        "format": PUBLISH_FORMATS[node.evalParm("fh_format")],
+        "variant": node.evalParm("fh_variant").strip() or "default",
+        "comment": node.evalParm("fh_comment").strip(),
+        "animated": bool(node.evalParm("fh_animated")),
+        "frame_start": node.evalParm("fh_fstart"),
+        "frame_end": node.evalParm("fh_fend"),
+    }
+    # Publish the input chain (the null is a passthrough); the input's name
+    # is the mesh name artists expect in the USD.
+    sources = [node.input(0)] if node.input(0) is not None else [node]
+    return _run_publish(sources, context, project, values)
 
 
 def _export_node_files(nodes, format_name, scratch):
@@ -751,7 +885,10 @@ def load_asset():
     source = dialog.context_widget.context()
     # Picking a row in the browser pins the exact version.
     _track_dependency(context, source, row["format"], row["name"], row["version"])
-    return _import_publish(row["format"], row["path"], row["name"])
+    return _import_publish(
+        row["format"], row["path"], row["name"],
+        source=source, version=row["version"],
+    )
 
 
 def import_staged():
@@ -768,14 +905,15 @@ def import_staged():
     if not path or not os.path.exists(path):
         _error("The staged publish is missing on disk:\n%s" % path)
         return None
+    source = {
+        "project": selection.get("project", ""),
+        "kind": selection.get("kind", "asset"),
+        "entity": selection.get("entity", ""),
+        "task": selection.get("task", ""),
+    }
     _track_dependency(
         _current_context(),
-        {
-            "project": selection.get("project", ""),
-            "kind": selection.get("kind", "asset"),
-            "entity": selection.get("entity", ""),
-            "task": selection.get("task", ""),
-        },
+        source,
         selection.get("format", config.DEFAULT_FORMAT),
         selection.get("name", "asset"),
         selection.get("version"),  # None = follows latest via the root layer
@@ -784,6 +922,7 @@ def import_staged():
         selection.get("format", config.DEFAULT_FORMAT),
         path,
         selection.get("name", "asset"),
+        source=source, version=selection.get("version"),
     )
 
 
@@ -804,19 +943,44 @@ def _track_dependency(context, source, format_name, name, version):
         return
 
 
-def _import_publish(format_name, path, name):
-    node_name = naming.make_identifier(name)
+def _usd_entry_layer(path):
+    """Ingested USD rows point at the version dir — find the entry layer."""
+    if os.path.isdir(path):
+        layers = sorted(
+            entry for entry in os.listdir(path)
+            if entry.lower().endswith((".usd", ".usda", ".usdc", ".usdz"))
+        )
+        if layers:
+            return os.path.join(path, layers[0])
+    return path
 
-    if format_name == "usd":
-        # Ingested USD rows point at the version dir — find the layer.
-        if os.path.isdir(path):
-            layers = sorted(
-                entry for entry in os.listdir(path)
-                if entry.lower().endswith((".usd", ".usda", ".usdc", ".usdz"))
-            )
-            if layers:
-                path = os.path.join(path, layers[0])
-        return _import_usd(path, node_name)
+
+def _publish_file_list(path):
+    if os.path.isdir(path):
+        files = sorted(
+            os.path.join(path, entry)
+            for entry in os.listdir(path)
+            if os.path.isfile(os.path.join(path, entry))
+            and not entry.endswith(".json")
+            and os.path.basename(os.path.dirname(os.path.join(path, entry)))
+            != config.THUMBNAILS_DIR
+        )
+    else:
+        files = [path]
+    return [f for f in files if config.THUMBNAILS_DIR not in f.split(os.sep)]
+
+
+def _fill_file_container(container, files):
+    # Frame sequences collapse to one File SOP with $F4; single files get
+    # one File SOP each.
+    for label, parm_value in _group_sequences(files):
+        file_sop = container.createNode("file", naming.make_identifier(label))
+        file_sop.parm("file").set(parm_value)
+    container.layoutChildren()
+
+
+def _import_publish(format_name, path, name, source=None, version=None):
+    node_name = naming.make_identifier(name)
 
     if format_name == "hda":
         installed = []
@@ -830,31 +994,108 @@ def _import_publish(format_name, path, name):
         _message("Installed HDA librarie(s):\n%s" % "\n".join(installed or ["none"]))
         return installed
 
-    # File formats: one geo object; frame sequences collapse to one File
-    # SOP with $F4, single files get one File SOP each.
-    if os.path.isdir(path):
-        files = sorted(
-            os.path.join(path, entry)
-            for entry in os.listdir(path)
-            if os.path.isfile(os.path.join(path, entry))
-            and not entry.endswith(".json")
-            and os.path.basename(os.path.dirname(os.path.join(path, entry)))
-            != config.THUMBNAILS_DIR
-        )
-    else:
-        files = [path]
-    files = [f for f in files if config.THUMBNAILS_DIR not in f.split(os.sep)]
-    if not files:
-        _error("No files found in publish:\n%s" % path)
-        return None
+    if source:
+        node_name = "LOAD_" + node_name
 
-    container = hou.node("/obj").createNode("geo", node_name)
-    for label, parm_value in _group_sequences(files):
-        file_sop = container.createNode("file", naming.make_identifier(label))
-        file_sop.parm("file").set(parm_value)
-    container.moveToGoodPosition()
-    container.layoutChildren()
-    return container
+    if format_name == "usd":
+        node = _import_usd(_usd_entry_layer(path), node_name)
+    else:
+        files = _publish_file_list(path)
+        if not files:
+            _error("No files found in publish:\n%s" % path)
+            return None
+        node = hou.node("/obj").createNode("geo", node_name)
+        _fill_file_container(node, files)
+        node.moveToGoodPosition()
+
+    if node is not None and source:
+        # The import is a LOADER: it remembers where it came from and
+        # carries an UPDATE TO LATEST button.
+        _apply_loader_parms(node, source, format_name, name, version)
+    return node
+
+
+def _apply_loader_parms(node, source, format_name, name, version):
+    group = node.parmTemplateGroup()
+    folder = hou.FolderParmTemplate("fh_loader", "FIVE HUB LOADER")
+    for key, value in (
+        ("project", source.get("project", "")),
+        ("kind", source.get("kind", "asset")),
+        ("entity", source.get("entity", "")),
+        ("task", source.get("task", "")),
+        ("name", name),
+        ("format", format_name),
+    ):
+        folder.addParmTemplate(hou.StringParmTemplate(
+            "fh_" + key, key.capitalize(), 1, default_value=(str(value),)
+        ))
+    folder.addParmTemplate(hou.StringParmTemplate(
+        "fh_version", "Loaded Version", 1,
+        default_value=(config.version_label(version) if version else "latest",),
+    ))
+    folder.addParmTemplate(hou.ButtonParmTemplate(
+        "fh_update", "UPDATE TO LATEST",
+        script_callback="__import__('fivehub_houdini').update_loader(kwargs['node'])",
+        script_callback_language=hou.scriptLanguage.Python,
+    ))
+    group.append(folder)
+    node.setParmTemplateGroup(group)
+    try:
+        node.setColor(hou.Color((0.05, 0.05, 0.06)))
+    except hou.OperationFailed:
+        pass
+
+
+def update_loader(node):
+    """The button on a FIVEHUB LOADER: repoint it at the newest live
+    publish of the asset it loaded, wherever it has moved to since."""
+    source = {
+        key: node.evalParm("fh_" + key)
+        for key in ("project", "kind", "entity", "task", "name", "format")
+    }
+    format_name = source.pop("format")
+    name = source.pop("name")
+    try:
+        project = get_project(source["project"])
+        rows = project.publishes(source["kind"], source["entity"], source["task"])
+    except ValueError as error:
+        _error(str(error))
+        return None
+    live = [
+        row for row in rows
+        if row["format"] == format_name and row["name"] == name
+        and row["version"] and row.get("passed")
+    ]
+    if not live:
+        _error("No live %s publish named %r on that task." % (format_name, name))
+        return None
+    row = max(live, key=lambda entry: entry["version"])
+    label = config.version_label(row["version"])
+    if node.evalParm("fh_version") == label:
+        _message("Already at the latest (%s)." % label)
+        return node
+    _repoint_loader(node, format_name, row["path"])
+    node.parm("fh_version").set(label)
+    _track_dependency(
+        _current_context(), source, format_name, name, row["version"]
+    )
+    _message("%s updated to %s." % (name, label))
+    return node
+
+
+def _repoint_loader(node, format_name, path):
+    if node.parm("filepath1") is not None and not node.children():
+        # LOP reference node — one parm swap.
+        node.parm("filepath1").set(_usd_entry_layer(path))
+        return
+    for child in node.children():
+        child.destroy()
+    if format_name == "usd":
+        importer = node.createNode("usdimport", "import")
+        importer.parm("filepath1").set(_usd_entry_layer(path))
+        node.layoutChildren()
+    else:
+        _fill_file_container(node, _publish_file_list(path))
 
 
 def _group_sequences(files):

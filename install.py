@@ -13,7 +13,9 @@ Stdlib only. Flags like --no-app / --no-fonts skip steps (used by CI).
 """
 
 import argparse
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -43,6 +45,73 @@ def run(command, timeout=900, cwd=None):
     )
     output = (completed.stdout or "") + (completed.stderr or "")
     return completed.returncode == 0, output.strip()
+
+
+HOUDINI_BINARIES = ("houdinifx", "houdini", "houdinicore", "hindie")
+
+
+def find_houdini(base=None):
+    """Newest Houdini binary from $HFS or the standard install locations."""
+    if os.name == "nt":
+        default_base = os.path.join(
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            "Side Effects Software",
+        )
+        prefix, bin_sub, extension = "Houdini", "bin", ".exe"
+    elif sys.platform == "darwin":
+        default_base = "/Applications/Houdini"
+        prefix = "Houdini"
+        bin_sub = "Frameworks/Houdini.framework/Versions/Current/Resources/bin"
+        extension = ""
+    else:
+        default_base, prefix, bin_sub, extension = "/opt", "hfs", "bin", ""
+    hfs = os.environ.get("HFS", "")
+    if hfs:
+        for name in HOUDINI_BINARIES:
+            candidate = os.path.join(hfs, "bin", name + extension)
+            if os.path.isfile(candidate):
+                return candidate
+    try:
+        directories = [
+            entry for entry in os.listdir(base or default_base)
+            if entry.startswith(prefix)
+        ]
+    except OSError:
+        return ""
+
+    def version_key(text):
+        return [int(number) for number in re.findall(r"\d+", text)]
+
+    for directory in sorted(directories, key=version_key, reverse=True):
+        for name in HOUDINI_BINARIES:
+            candidate = os.path.join(
+                base or default_base, directory, bin_sub, name + extension
+            )
+            if os.path.isfile(candidate):
+                return candidate
+    return ""
+
+
+def detect_houdini():
+    """Record the Houdini binary in ~/.fivehub/machine.json for the app's
+    open/launch buttons — set once at install, self-repaired by the app."""
+    binary = find_houdini()
+    if not binary:
+        step("Houdini binary", False,
+             "not found — the app will ask you to locate houdini once")
+        return
+    target = os.path.join(os.path.expanduser("~"), ".fivehub", "machine.json")
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    data = {}
+    try:
+        with open(target, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        pass
+    data["houdini"] = binary
+    with open(target, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2)
+    step("Houdini binary", True, binary)
 
 
 def install_houdini_package():
@@ -202,6 +271,7 @@ def main(argv=None):
     print("FIVE HUB installer — %s\n" % REPO)
     if not args.no_houdini:
         install_houdini_package()
+        detect_houdini()
     pillow = True
     if not args.no_pip:
         pillow = install_pillow()

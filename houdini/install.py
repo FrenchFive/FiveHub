@@ -50,7 +50,11 @@ def package_payload():
                 }
             },
             # The FIVE HUB launch artwork (regenerate: fivehub.cli splash).
-            {"HOUDINI_SPLASH_FILE": "$FIVEHUB/houdini/splash/fivehub_splash.png"},
+            # Absolute on purpose: the splash file is read so early in the
+            # launch that $FIVEHUB may not expand yet — the message applies
+            # but the art silently falls back to Houdini's stock image.
+            {"HOUDINI_SPLASH_FILE":
+                REPO.replace("\\", "/") + "/houdini/splash/fivehub_splash.png"},
             {"HOUDINI_SPLASH_MESSAGE": "FIVE HUB pipeline — validated USD publishes"},
         ],
     }

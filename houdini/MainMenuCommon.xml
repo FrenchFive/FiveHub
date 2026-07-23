@@ -62,6 +62,19 @@ fivehub_houdini.publish()
 ]]></scriptCode>
       </scriptItem>
 
+      <scriptItem id="fivehub_create_publish_node">
+        <label>Create Publish Node</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.create_publish_node()
+]]></scriptCode>
+      </scriptItem>
+
       <scriptItem id="fivehub_load_asset">
         <label>Load Published Asset...</label>
         <scriptCode><![CDATA[

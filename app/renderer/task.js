@@ -159,8 +159,10 @@ function scenesTable(scenes) {
   return table;
 }
 
-function publishesTable(publishes) {
-  if (!publishes.length) return el("div", "label", "NOTHING PUBLISHED YET");
+function publishesTable(publishes, emptyText) {
+  if (!publishes.length) {
+    return el("div", "label", emptyText || "NOTHING PUBLISHED YET");
+  }
   const table = el("table");
   const head = el("thead");
   const headRow = el("tr");
@@ -380,10 +382,37 @@ function depsList(uses, usedBy) {
 }
 
 let projectRoot = "";
+let lastInfo = null;
+let pubView = "publishes"; // "publishes" = passed versions, "log" = every attempt
+
+function renderPublishes() {
+  const box = document.getElementById("publishes");
+  clear(box);
+  const all = (lastInfo && lastInfo.publishes) || [];
+  if (pubView === "log") {
+    box.appendChild(publishesTable(all, "NO PUBLISH ATTEMPTS YET"));
+  } else {
+    box.appendChild(
+      publishesTable(
+        all.filter((publish) => publish.passed && publish.version),
+        "NOTHING PUBLISHED YET",
+      ),
+    );
+  }
+}
+
+for (const button of document.querySelectorAll("#pub-view .seg-item")) {
+  button.addEventListener("click", () => {
+    pubView = button.dataset.view;
+    for (const other of document.querySelectorAll("#pub-view .seg-item")) {
+      other.classList.toggle("on", other === button);
+    }
+    renderPublishes();
+  });
+}
 
 async function load() {
   const scenesBox = document.getElementById("scenes");
-  const publishesBox = document.getElementById("publishes");
   try {
     const info = await window.fivehub.taskInfo(context);
     projectRoot = info.root || "";
@@ -395,8 +424,8 @@ async function load() {
 
     clear(scenesBox);
     scenesBox.appendChild(scenesTable(info.scenes));
-    clear(publishesBox);
-    publishesBox.appendChild(publishesTable(info.publishes));
+    lastInfo = info;
+    renderPublishes();
 
     const depsSection = document.getElementById("deps-section");
     const depsBox = document.getElementById("deps");

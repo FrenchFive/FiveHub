@@ -32,7 +32,19 @@ from dataclasses import dataclass, field, replace
 from . import config, usdlayers, validation
 from .geometry import SourceInfo
 from .naming import make_identifier
+from .report import Severity
 from .user import get_user
+
+
+def _rules_for_task(task, rule_config):
+    """Material coverage only blocks lookdev-type publishes: modeling,
+    rig, fx and the rest ship geometry before materials exist, so an
+    unassigned face is a warning there, not a wall. An explicit
+    rule_config for mtl.missing always wins."""
+    merged = dict(rule_config or {})
+    if str(task).lower() not in config.LOOKDEV_TASKS:
+        merged.setdefault("mtl.missing", {"severity": Severity.WARNING})
+    return merged
 
 
 @dataclass
@@ -157,7 +169,7 @@ def publish_usd(project, kind, entity, task, request, rule_config=None):
     task_record = project._task_record(kind, entity, task)
     task_id = task_record["id"]
 
-    report = validation.validate(request, rule_config)
+    report = validation.validate(request, _rules_for_task(task, rule_config))
     if not report.passed:
         return _blocked(project, kind, entity, task, request, report, "usd")
 
