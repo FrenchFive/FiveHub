@@ -3,8 +3,10 @@
 const context = queryParams(); // {project, kind, entity, task}
 
 const backBtn = document.getElementById("back");
-backBtn.textContent = "‹ " + (context.project || "PROJECT").toUpperCase();
-backBtn.addEventListener("click", () => go("project.html", { name: context.project }));
+backBtn.textContent = "‹ " + (context.entity || "BACK").toUpperCase();
+backBtn.addEventListener("click", () =>
+  go("entity.html", { project: context.project, kind: context.kind, name: context.entity }),
+);
 
 document.getElementById("context-label").textContent =
   `${context.project} · ${context.kind} ${context.entity}`;
@@ -325,6 +327,17 @@ async function ingestSheet() {
 }
 
 document.getElementById("ingest").addEventListener("click", ingestSheet);
+
+// Fresh start on this task: launch Houdini bound to it (JOB + FH_* env) —
+// the FIVE HUB Save Scene As dialog opens prefilled and creates v001.
+document.getElementById("new-scene").addEventListener("click", async () => {
+  try {
+    await window.fivehub.launchHoudini(context, projectRoot);
+    toast("HOUDINI LAUNCHED — SAVE SCENE AS CREATES THE FIRST VERSION");
+  } catch (error) {
+    toast(cliErrorText(error).toUpperCase());
+  }
+});
 
 function depsList(uses, usedBy) {
   const box = el("div", "activity-list");

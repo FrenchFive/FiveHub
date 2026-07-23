@@ -289,6 +289,29 @@ ipcMain.handle("os:pickFiles", async (event, title) => {
   return picked.canceled ? [] : picked.filePaths;
 });
 
+// Launch Houdini on a task with no scene yet: JOB + FH_* ride along so the
+// FIVE HUB Save Scene As dialog opens prefilled and creates the first
+// version in the right place.
+ipcMain.handle("os:launchHoudini", (_event, context, projectRoot) => {
+  const binary = resolveHoudini();
+  if (!binary) {
+    throw new Error(
+      "Houdini not found. Set FIVEHUB_HOUDINI to your houdini binary.",
+    );
+  }
+  const env = { ...process.env };
+  if (projectRoot) env.JOB = projectRoot;
+  if (context) {
+    env.FH_PROJECT = context.project || "";
+    env.FH_KIND = context.kind || "";
+    env.FH_ENTITY = context.entity || "";
+    env.FH_TASK = context.task || "";
+  }
+  const child = spawn(binary, [], { detached: true, stdio: "ignore", env });
+  child.unref();
+  return { binary };
+});
+
 ipcMain.handle("os:openScene", async (_event, sceneFile, projectRoot) => {
   const binary = resolveHoudini();
   if (binary) {
@@ -344,12 +367,30 @@ ipcMain.handle("hub:updateRun", async () => {
 
 // -- lifecycle -----------------------------------------------------------
 
-app.whenReady().then(() => {
-  openMain();
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) openMain();
+// One instance only: opening the hub again (from Houdini, the Start Menu,
+// anywhere) focuses the running window instead of racing a second Chromium
+// profile — that race is what spams GPU-cache "Access is denied" errors.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    openMain();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
   });
-});
+
+  app.whenReady().then(() => {
+    openMain();
+    // The splash is machine-generated; if an update or cleanup removed it,
+    // quietly re-render so the next Houdini launch is branded again.
+    runCli(["splash", "--if-missing"]).catch(() => {});
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) openMain();
+    });
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

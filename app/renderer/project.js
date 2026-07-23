@@ -54,6 +54,24 @@ async function entitySheet(kind) {
       const tasksField = sheetField(body, "TASKS TO CREATE");
       const chips = el("div", "chips");
       const selected = new Set();
+      const taskChips = new Map();
+      const allChip = el("button", "chip toggle all", "ALL");
+      const syncAll = () => {
+        allChip.classList.toggle(
+          "on",
+          defaultTasks.length > 0 && selected.size === defaultTasks.length,
+        );
+      };
+      allChip.addEventListener("click", () => {
+        const everything = selected.size === defaultTasks.length;
+        selected.clear();
+        if (!everything) for (const task of defaultTasks) selected.add(task);
+        for (const [task, chip] of taskChips) {
+          chip.classList.toggle("on", selected.has(task));
+        }
+        syncAll();
+      });
+      chips.appendChild(allChip);
       for (const task of defaultTasks) {
         const chip = el("button", "chip toggle", task);
         chip.addEventListener("click", () => {
@@ -64,7 +82,9 @@ async function entitySheet(kind) {
             selected.add(task);
             chip.classList.add("on");
           }
+          syncAll();
         });
+        taskChips.set(task, chip);
         chips.appendChild(chip);
       }
       tasksField.appendChild(chips);
@@ -111,103 +131,11 @@ async function entitySheet(kind) {
   }
 }
 
-async function editEntitySheet(kind, entity) {
-  const values = await openSheet({
-    title: "Edit " + entity.name,
-    submitLabel: "SAVE",
-    build(body) {
-      const sequenceField = sheetField(body, "SEQUENCE");
-      const sequenceInput = el("input");
-      sequenceInput.type = "text";
-      sequenceInput.value = entity.sequence || "";
-      sequenceField.appendChild(sequenceInput);
+const editEntitySheet = (kind, entity) =>
+  editEntitySheetShared(projectName, kind, entity, load);
 
-      const rangeField = sheetField(body, "FRAME RANGE");
-      const rangeRow = el("div", "form-row");
-      const startInput = el("input");
-      startInput.type = "text";
-      startInput.value = entity.frame_start ?? "";
-      const endInput = el("input");
-      endInput.type = "text";
-      endInput.value = entity.frame_end ?? "";
-      rangeRow.appendChild(startInput);
-      rangeRow.appendChild(endInput);
-      rangeField.appendChild(rangeRow);
-
-      const formatField = sheetField(body, "FPS / RESOLUTION");
-      const formatRow = el("div", "form-row");
-      const fpsInput = el("input");
-      fpsInput.type = "text";
-      fpsInput.value = entity.fps ?? "";
-      const resXInput = el("input");
-      resXInput.type = "text";
-      resXInput.value = entity.res_x ?? "";
-      const resYInput = el("input");
-      resYInput.type = "text";
-      resYInput.value = entity.res_y ?? "";
-      formatRow.appendChild(fpsInput);
-      formatRow.appendChild(resXInput);
-      formatRow.appendChild(resYInput);
-      formatField.appendChild(formatRow);
-
-      return () => ({
-        sequence: sequenceInput.value.trim(),
-        frame_start: startInput.value.trim(),
-        frame_end: endInput.value.trim(),
-        fps: fpsInput.value.trim(),
-        res_x: resXInput.value.trim(),
-        res_y: resYInput.value.trim(),
-      });
-    },
-  });
-  if (!values) return;
-  try {
-    await window.fivehub.entityUpdate(projectName, kind, entity.name, values);
-    toast("METADATA SAVED");
-    await load();
-  } catch (error) {
-    toast(cliErrorText(error).toUpperCase());
-  }
-}
-
-async function taskSheet(kind, entityName) {
-  const values = await openSheet({
-    title: `New task on ${entityName}`,
-    submitLabel: "CREATE",
-    build(body) {
-      const nameField = sheetField(body, "TASK NAME");
-      const nameInput = el("input");
-      nameInput.type = "text";
-      nameInput.placeholder = "e.g. modeling";
-      nameField.appendChild(nameInput);
-
-      const suggestField = sheetField(body, "SUGGESTIONS");
-      const chips = el("div", "chips");
-      for (const task of defaultTasks) {
-        const chip = el("button", "chip", task);
-        chip.addEventListener("click", () => {
-          nameInput.value = task;
-          nameInput.focus();
-        });
-        chips.appendChild(chip);
-      }
-      suggestField.appendChild(chips);
-
-      return () => {
-        const name = nameInput.value.trim();
-        return name ? { name } : null;
-      };
-    },
-  });
-  if (!values) return;
-  try {
-    await window.fivehub.taskCreate(projectName, kind, entityName, values.name);
-    toast("TASK CREATED");
-    await load();
-  } catch (error) {
-    toast(cliErrorText(error).toUpperCase());
-  }
-}
+const taskSheet = (kind, entityName) =>
+  taskSheetShared(projectName, kind, entityName, defaultTasks, load);
 
 function entityBlock(kind, entity) {
   const block = el("div", "entity-block");
@@ -256,20 +184,28 @@ function entityBlock(kind, entity) {
         (task.active_user ? ` · ● ${task.active_user}` : ""),
     );
     if (task.active_user) chip.title = "In use by " + task.active_user;
-    chip.addEventListener("click", () =>
+    chip.addEventListener("click", (event) => {
+      event.stopPropagation();
       go("task.html", {
         project: projectName,
         kind,
         entity: entity.name,
         task: task.name,
-      }),
-    );
+      });
+    });
     chips.appendChild(chip);
   }
   const addChip = el("button", "chip add", "+ TASK");
-  addChip.addEventListener("click", () => taskSheet(kind, entity.name));
+  addChip.addEventListener("click", (event) => {
+    event.stopPropagation();
+    taskSheet(kind, entity.name);
+  });
   chips.appendChild(addChip);
   block.appendChild(chips);
+  // The block itself opens the asset/shot page — chips go straight to a task.
+  block.addEventListener("click", () =>
+    go("entity.html", { project: projectName, kind, name: entity.name }),
+  );
   return block;
 }
 
