@@ -139,6 +139,56 @@ def install_app():
          "" if ok else (output.splitlines()[-1] if output else "npm failed"))
 
 
+def install_shortcut():
+    """Make FIVE HUB findable: Start Menu (Windows) / app menu (Linux)."""
+    app_dir = os.path.join(REPO, "app")
+    electron = os.path.join(app_dir, "node_modules", "electron", "dist",
+                            "electron.exe" if os.name == "nt" else "electron")
+    if not os.path.isfile(electron):
+        step("App shortcut", False,
+             "app not installed yet — rerun this installer after npm install")
+        return
+
+    if os.name == "nt":
+        shortcut = os.path.join(
+            os.environ.get("APPDATA", ""), "Microsoft", "Windows",
+            "Start Menu", "Programs", "FiveHub.lnk",
+        )
+        icon = os.path.join(REPO, "assets", "fivehub.ico")
+        script = (
+            "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('%s');"
+            "$s.TargetPath = '%s';"
+            "$s.Arguments = '\"%s\"';"
+            "$s.WorkingDirectory = '%s';"
+            "$s.IconLocation = '%s';"
+            "$s.Description = 'FIVE HUB — pipeline for Houdini';"
+            "$s.Save()"
+        ) % (shortcut, electron, app_dir, app_dir, icon)
+        ok, output = run(["powershell", "-NoProfile", "-Command", script],
+                         timeout=60)
+        step("App shortcut (Start Menu)", ok,
+             shortcut if ok else output.splitlines()[-1] if output else "failed")
+    elif sys.platform.startswith("linux"):
+        applications = os.path.join(
+            os.path.expanduser("~"), ".local", "share", "applications"
+        )
+        os.makedirs(applications, exist_ok=True)
+        desktop = os.path.join(applications, "fivehub.desktop")
+        with open(desktop, "w", encoding="utf-8") as handle:
+            handle.write(
+                "[Desktop Entry]\nType=Application\nName=FiveHub\n"
+                "Comment=FIVE HUB — pipeline for Houdini\n"
+                "Exec=\"%s\" \"%s\"\nIcon=%s\nTerminal=false\n"
+                "Categories=Graphics;\n"
+                % (electron, app_dir, os.path.join(REPO, "assets", "icon.png"))
+            )
+        step("App shortcut (applications menu)", True, desktop)
+    else:
+        step("App shortcut", False,
+             "macOS: use 'npm run dist' in app/ for a real .app, or the HUB "
+             "button in Houdini")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-houdini", action="store_true")
@@ -146,6 +196,7 @@ def main(argv=None):
     parser.add_argument("--no-fonts", action="store_true")
     parser.add_argument("--no-splash", action="store_true")
     parser.add_argument("--no-app", action="store_true")
+    parser.add_argument("--no-shortcut", action="store_true")
     args = parser.parse_args(argv)
 
     print("FIVE HUB installer — %s\n" % REPO)
@@ -163,6 +214,8 @@ def main(argv=None):
             step("Splash screen", False, "needs Pillow")
     if not args.no_app:
         install_app()
+    if not args.no_shortcut:
+        install_shortcut()
 
     print("\nDone. Launch Houdini — the FIVE HUB menu is in the main menu bar.")
     print("The HUB button opens the app; first launch asks your name (that's the login).")

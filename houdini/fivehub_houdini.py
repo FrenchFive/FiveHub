@@ -1044,6 +1044,38 @@ def launch_hub():
     subprocess.Popen([binary, app_dir], **kwargs)
 
 
+def check_updates():
+    """Check the remote for a newer FiveHub; offer to pull it in place."""
+    from fivehub import updater
+
+    result = updater.check()
+    if result["error"]:
+        _message("Update check failed:\n%s" % result["error"],
+                 hou.severityType.Warning)
+        return None
+    if not result["update_available"]:
+        _message("FiveHub %s is up to date." % result["current"])
+        return None
+    pressed = hou.ui.displayMessage(
+        "FiveHub %s is available (you are running %s).\n\n"
+        "Update now? Restart Houdini afterwards (or use Reload Pipeline "
+        "for python-only changes)." % (result["remote"], result["current"]),
+        buttons=("Update", "Later"), default_choice=0, close_choice=1,
+        title="FIVE HUB",
+    )
+    if pressed != 0:
+        return None
+    outcome = updater.update()
+    if outcome["error"]:
+        _error(outcome["error"])
+        return outcome
+    _message(
+        "Updated %s -> %s.\nRestart Houdini (menu/package changes) or run "
+        "Reload Pipeline (python-only)." % (outcome["old"], outcome["new"])
+    )
+    return outcome
+
+
 def reload_fivehub():
     import importlib
 

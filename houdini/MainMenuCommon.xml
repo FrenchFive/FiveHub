@@ -144,6 +144,19 @@ fivehub_houdini.launch_hub()
 ]]></scriptCode>
       </scriptItem>
 
+      <scriptItem id="fivehub_check_updates">
+        <label>Check for Updates</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.check_updates()
+]]></scriptCode>
+      </scriptItem>
+
       <scriptItem id="fivehub_reload">
         <label>Reload Pipeline</label>
         <scriptCode><![CDATA[
