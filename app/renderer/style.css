@@ -565,6 +565,12 @@ tbody tr:hover {
   line-height: 1;
 }
 
+.btn.small {
+  padding: 6px 13px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
 .btn.icon {
   width: 34px;
   height: 34px;
@@ -697,12 +703,45 @@ tbody tr:hover {
   }
 }
 
-.section-head {
+/* -- panels: every section is a bounded card whose actions sit right
+      next to its title, so what a button creates is never ambiguous ---- */
+
+.panel {
+  background: var(--surface);
+  border: var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 4px 12px;
+  gap: 12px; /* title + its button stay together on the left */
+}
+
+.panel-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Cards nested inside a panel drop the white-on-white look. */
+.panel .entity-block,
+.panel .ref-cell,
+.panel .activity-list {
+  background: var(--wash);
+  box-shadow: none;
+}
+
+.panel .entity-block:hover {
+  transform: translateY(-1px);
+  box-shadow: none;
+  border-color: var(--line-strong);
 }
 
 .chip.toggle {
@@ -864,6 +903,23 @@ tbody tr:hover {
 .chip:active {
   transform: scale(0.94);
   transition-duration: 0.08s;
+}
+
+/* Chips inside panel entity blocks sit on the wash — keep them visible. */
+.panel .entity-block .chip {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+.panel .entity-block .chip:hover {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--surface);
+}
+
+.panel .entity-block .chip.add {
+  background: transparent;
+  border-color: var(--line-strong);
 }
 
 .project-image {

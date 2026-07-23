@@ -66,8 +66,6 @@ contextBridge.exposeInMainWorld("fivehub", {
   updateDismiss: () => ipcRenderer.invoke("hub:updateDismiss"),
   updateRun: () => ipcRenderer.invoke("hub:updateRun"),
 
-  openProject: (name) => ipcRenderer.invoke("win:project", name),
-  openTask: (context) => ipcRenderer.invoke("win:task", context),
   openReport: (path) => ipcRenderer.invoke("win:report", path),
 
   reveal: (target) => ipcRenderer.invoke("os:reveal", target),

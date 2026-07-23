@@ -10,7 +10,7 @@
 <body>
   <div class="page">
     <header class="bar">
-      <div class="brand">FIVEHUB</div>
+      <button class="btn" id="back" title="Back to the project">‹ PROJECT</button>
       <div class="spacer"></div>
       <div class="label" id="context-label"></div>
       <button class="btn icon dots" id="task-menu" title="More" aria-label="More options">⋯</button>
@@ -22,22 +22,22 @@
           <span class="spacer"></span>
           <span class="label" id="presence"></span>
         </div>
-        <section>
-          <div class="section-head">
-            <div class="label">WORK SCENES</div>
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title">WORK SCENES</div>
           </div>
           <div id="scenes"></div>
         </section>
-        <section>
-          <div class="section-head">
-            <div class="label">PUBLISHES</div>
-            <button class="btn" id="ingest" title="Publish external files into this task">INGEST FILES</button>
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title">PUBLISHES</div>
+            <button class="btn small" id="ingest" title="Publish external files into this task">+ INGEST FILES</button>
           </div>
           <div id="publishes"></div>
         </section>
-        <section id="deps-section" class="hidden">
-          <div class="section-head">
-            <div class="label">DEPENDENCIES</div>
+        <section id="deps-section" class="panel hidden">
+          <div class="panel-head">
+            <div class="panel-title">DEPENDENCIES</div>
           </div>
           <div id="deps"></div>
         </section>
