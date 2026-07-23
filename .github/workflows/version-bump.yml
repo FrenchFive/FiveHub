@@ -1,0 +1,57 @@
+# Auto version bump on every merge to main, sized by the change itself:
+#   < 100 changed lines -> patch (+0.0.1)
+#   < 500 changed lines -> minor (+0.1.0)
+#   >= 500              -> major (+1.0.0)
+# Writes fivehub/__init__.py + app/package.json, commits with the
+# [fivehub version] marker (which this workflow ignores, so it never
+# loops) and tags vX.Y.Z.
+
+name: Auto version bump
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[fivehub version]')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Count changed lines
+        id: count
+        run: |
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.after }}"
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
+            BEFORE=$(git rev-parse "$AFTER"^ 2>/dev/null || echo "$AFTER")
+          fi
+          # numstat: binary files report "-" and are excluded from the count.
+          LINES=$(git diff --numstat "$BEFORE" "$AFTER" -- . \
+            | awk '$1 != "-" {total += $1} $2 != "-" {total += $2} END {print total + 0}')
+          echo "Changed lines: $LINES"
+          echo "lines=$LINES" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version
+        id: bump
+        run: |
+          python3 scripts/bump_version.py --lines "${{ steps.count.outputs.lines }}" | tee bump.json
+          echo "version=$(python3 -c 'import json; print(json.load(open("bump.json"))["new"])')" >> "$GITHUB_OUTPUT"
+          rm bump.json
+
+      - name: Commit and tag
+        run: |
+          git config user.name "fivehub-bot"
+          git config user.email "fivehub-bot@users.noreply.github.com"
+          git add fivehub/__init__.py app/package.json
+          git commit -m "chore: version ${{ steps.bump.outputs.version }} (${{ steps.count.outputs.lines }} lines changed) [fivehub version]"
+          if ! git rev-parse "v${{ steps.bump.outputs.version }}" >/dev/null 2>&1; then
+            git tag "v${{ steps.bump.outputs.version }}"
+          fi
+          git push origin main --follow-tags
