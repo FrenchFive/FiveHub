@@ -1075,12 +1075,27 @@ class ToolsRegistryTests(unittest.TestCase):
         from fivehub import tools
 
         registry = tools.load_tools()
-        self.assertIn("cache-path", [entry["name"] for entry in registry["cli"]])
-        self.assertIn(
-            "Create Pipeline File Cache",
-            [entry["label"] for entry in registry["houdini"]],
-        )
+        names = [entry["name"] for entry in registry["cli"]]
+        self.assertIn("cache-path", names)
+        self.assertIn("splash", names)
+        labels = [entry["label"] for entry in registry["houdini"]]
+        self.assertIn("Create Pipeline File Cache", labels)
+        self.assertIn("Regenerate FiveHub Splash", labels)
         self.assertIs(tools.load_tools(), registry)  # loads once
+
+    def test_splash_renders(self):
+        try:
+            import PIL  # noqa: F401
+        except ImportError:
+            self.skipTest("Pillow not installed")
+        from fivehub.tools.splash import render
+
+        out = os.path.join(self.tmp.name, "splash.png")
+        result = render(out, houdini_version="20.0.345", license_type="FX",
+                        user="ana", width=300, height=169)
+        self.assertEqual(result["size"], [300, 169])
+        with open(out, "rb") as handle:
+            self.assertEqual(handle.read(8), b"\x89PNG\r\n\x1a\n")
 
     def test_cache_path_nomenclature_via_cli(self):
         env = dict(os.environ)

@@ -67,21 +67,36 @@ values; pick a token.
 
 ## 3. TYPOGRAPHY
 
-System stack, Apple-first:
-`-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`
+The project typeface is **Satoshi** (Fontshare, free — drop the family
+into `assets/fonts/`, see its README; font files are never committed).
+Stack: `"Satoshi", -apple-system, "SF Pro Text", "Segoe UI", Roboto,
+"Helvetica Neue", Arial, sans-serif` — everything degrades to the system
+stack when Satoshi isn't installed.
 Monospace for paths and file names: `"SF Mono", "Cascadia Mono", Consolas, monospace`.
 
-| Role | Size / weight | Treatment |
+**The FIVE HUB wordmark is always Satoshi Black (900)** — app titles and
+brand, Qt headings (`Satoshi Black` family name), and the Houdini splash.
+No exceptions, no substitutes at other weights.
+
+| Role | Face / size / weight | Treatment |
 |---|---|---|
-| Title (`.title`) | 32px / 700 | Tight tracking (−0.02em), true case ("DemoCrate / modeling") |
-| Brand (`.brand`) | 15px / 700 | "FIVEHUB", slight positive tracking |
-| Body | 13–14px / 400–500 | True case, never uppercase |
-| Label (`.label`) | 10px / 600 | UPPERCASE, +0.12em tracking, `--ink-2` — the *only* uppercase role besides buttons |
-| Button text | 11px / 600 | UPPERCASE, +0.06em |
+| Brand / titles (`.brand`, `.title`) | Satoshi Black · 15/32px · 900 | Tight tracking (−0.02em on titles), true case for data ("DemoCrate / modeling") |
+| Body | Satoshi · 13–14px · 400–500 | True case, never uppercase |
+| Label (`.label`) | Satoshi · 10px · 600 | UPPERCASE, +0.12em tracking, `--ink-2` — the *only* uppercase role besides buttons |
+| Button text | Satoshi · 11px · 600 | UPPERCASE, +0.06em |
 | Mono (`.mono`) | 11px | Paths, filenames, IDs |
 
 Data names (assets, tasks, users) always render in their true case.
 Numbers that align in columns get `font-variant-numeric: tabular-nums`.
+
+### The splash
+
+The Houdini launch artwork (`houdini/splash/`, generator
+`fivehub/tools/splash.py`) is the design system at full volume: wash
+ground, one light goop field with readable lobes plus a small ink goop,
+FIVE HUB in Satoshi Black, and the session facts as pills — the license
+type is the one solid pill. Regenerate with `fivehub.cli splash` or the
+in-Houdini Pipeline Tool (which bakes the real build + license).
 
 ## 4. SHAPE & ELEVATION
 

@@ -49,6 +49,9 @@ def package_payload():
                     "method": "prepend",
                 }
             },
+            # The FIVE HUB launch artwork (regenerate: fivehub.cli splash).
+            {"HOUDINI_SPLASH_FILE": "$FIVEHUB/houdini/splash/fivehub_splash.png"},
+            {"HOUDINI_SPLASH_MESSAGE": "FIVE HUB pipeline — validated USD publishes"},
         ],
     }
 
