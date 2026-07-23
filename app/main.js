@@ -84,6 +84,7 @@ function createWindow(page, query, options) {
     backgroundColor: "#f5f5f7",
     autoHideMenuBar: true,
     title: options.title || "FIVEHUB",
+    icon: path.join(REPO_ROOT, "assets", "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
     },
@@ -333,6 +334,35 @@ ipcMain.handle("os:openScene", async (_event, sceneFile, projectRoot) => {
     );
   }
   return { via: "os" };
+});
+
+// -- self-update ---------------------------------------------------------
+//
+// Nothing updates behind the user's back: windows open immediately, the
+// renderer runs the version check in the background and offers a small
+// dismissible popup when a newer version exists. Accepting pulls and
+// relaunches; dismissing keeps the popup away until the next app boot —
+// the flag lives here so it covers every window for this process's life.
+// FIVEHUB_NO_AUTOUPDATE=1 mutes the popup (the header button still works).
+
+let updateOfferDismissed = Boolean(process.env.FIVEHUB_NO_AUTOUPDATE);
+
+ipcMain.handle("hub:updateCheck", async () => {
+  const result = await runCli(["update", "--check"]);
+  result.dismissed = updateOfferDismissed;
+  return result;
+});
+ipcMain.handle("hub:updateDismiss", () => {
+  updateOfferDismissed = true;
+});
+ipcMain.handle("hub:updateRun", async () => {
+  const result = await runCli(["update"]);
+  if (result.update && result.update.updated) {
+    // Relaunch so every window runs the freshly pulled code.
+    app.relaunch();
+    app.exit(0);
+  }
+  return result;
 });
 
 // -- lifecycle -----------------------------------------------------------

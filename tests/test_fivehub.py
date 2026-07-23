@@ -1311,6 +1311,39 @@ class VersionBumpTests(unittest.TestCase):
             self.assertEqual(json.load(handle)["version"], version)
 
 
+class UpdaterTests(unittest.TestCase):
+    def test_version_parse_and_compare(self):
+        from fivehub import updater
+
+        self.assertEqual(updater.parse_version("3.10.2"), (3, 10, 2))
+        self.assertGreater(updater.parse_version("3.10.0"),
+                           updater.parse_version("3.9.9"))
+        self.assertEqual(updater.parse_version("junk"), (0, 0, 0))
+
+    def test_newest_tag_from_ls_remote(self):
+        from fivehub import updater
+
+        output = "\n".join([
+            "aaa\trefs/tags/v3.0.1",
+            "bbb\trefs/tags/v3.10.0",
+            "ccc\trefs/tags/v3.2.0",
+            "ddd\trefs/tags/v3.10.0^{}",   # peeled tags are ignored
+            "eee\trefs/tags/not-a-version",
+        ])
+        self.assertEqual(updater.newest_tag(output), "3.10.0")
+        self.assertEqual(updater.newest_tag(""), "")
+
+    def test_non_git_checkout_reports_cleanly(self):
+        from fivehub import updater
+
+        with tempfile.TemporaryDirectory() as tmp:
+            check = updater.check(tmp)
+            self.assertIn("not a git checkout", check["error"])
+            outcome = updater.update(tmp)
+            self.assertFalse(outcome["updated"])
+            self.assertIn("not a git checkout", outcome["error"])
+
+
 class InstallerTests(unittest.TestCase):
     def test_one_shot_installer_offline(self):
         # Network/npm/pip steps skipped: the installer must still succeed
