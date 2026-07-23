@@ -803,6 +803,23 @@ class ProjectDB:
                 (key, str(value)),
             )
 
+    def latest_hdas(self):
+        """The newest live version of every HDA publish in the project —
+        used to auto-install a project's toolset on scene load."""
+        query = """
+            SELECT p.* FROM publish p
+            WHERE p.format = 'hda' AND p.version IS NOT NULL
+              AND p.status = 'complete' AND p.deleted_at = ''
+              AND p.version = (
+                  SELECT MAX(q.version) FROM publish q
+                  WHERE q.task_id = p.task_id AND q.name = p.name
+                    AND q.format = 'hda' AND q.version IS NOT NULL
+                    AND q.status = 'complete' AND q.deleted_at = ''
+              )
+        """
+        with self._connect() as conn:
+            return [dict(row) for row in conn.execute(query).fetchall()]
+
     def task_context(self, task_id):
         """(kind, entity, task) names for a task id, or None."""
         with self._connect() as conn:

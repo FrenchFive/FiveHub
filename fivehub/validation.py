@@ -429,8 +429,11 @@ def build_rules(overrides=None, rule_classes=DEFAULT_RULES):
 
 
 def validate(request, overrides=None):
-    """Run the full USD publish rule set against a publish request."""
-    return run_rules(build_rules(overrides), request)
+    """Run the full USD publish rule set (plus drop-in tool rules)."""
+    from . import tools
+
+    rule_classes = DEFAULT_RULES + tuple(tools.load_tools()["rules"])
+    return run_rules(build_rules(overrides, rule_classes), request)
 
 
 def validate_files(request, overrides=None):

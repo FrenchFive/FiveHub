@@ -603,6 +603,15 @@ def build_parser():
     commands.add_parser(
         "backup", help="back up every project database and the registry"
     ).set_defaults(func=cmd_backup)
+
+    # Drop-in tools contribute their own subcommands (fivehub/tools/).
+    from . import tools
+
+    for entry in tools.load_tools()["cli"]:
+        sub = commands.add_parser(entry["name"], help=entry["help"])
+        if entry["configure"]:
+            entry["configure"](sub)
+        sub.set_defaults(func=entry["run"])
     return parser
 
 

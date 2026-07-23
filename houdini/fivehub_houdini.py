@@ -101,10 +101,32 @@ def _entity_frame_range(project, context):
     return int(start), int(end)
 
 
+_HDA_INSTALLED_PROJECTS = set()
+
+
+def _install_project_hdas(project):
+    """Published project HDAs follow the scene: the latest version of every
+    HDA publish in the project installs into the session (once)."""
+    if project.root in _HDA_INSTALLED_PROJECTS:
+        return
+    _HDA_INSTALLED_PROJECTS.add(project.root)
+    for row in project.db.latest_hdas():
+        version_dir = project.absolute(row.get("path", ""))
+        if not os.path.isdir(version_dir):
+            continue
+        for entry in sorted(os.listdir(version_dir)):
+            if entry.lower().endswith((".hda", ".otl", ".hdanc", ".hdalc")):
+                try:
+                    hou.hda.installFile(os.path.join(version_dir, entry))
+                except hou.OperationFailed:
+                    pass
+
+
 def _after_context_change(project, context, scene_version=None):
     _bind_context_env(project, context)
     if context["kind"] == "shot":
         _apply_shot_settings(project, context)
+    _install_project_hdas(project)
     project.touch_presence(
         context["kind"], context["entity"], context["task"], get_user(),
         scene_version=scene_version, host=os.environ.get("HOSTNAME", ""),
@@ -968,6 +990,32 @@ def publish_shot_assembly():
         % (result["version_label"], result["references"], result["layer"])
     )
     return result
+
+
+def pipeline_tools():
+    """List and run the drop-in tools registered in fivehub/tools/."""
+    from fivehub.tools import load_tools
+    from fivehub_windows import ToolsDialog, exec_dialog
+
+    registry = load_tools()["houdini"]
+    if not registry:
+        _message(
+            "No pipeline tools registered yet.\n\n"
+            "Add a module in fivehub/tools/ with @houdini_tool — see\n"
+            "fivehub/tools/cachepath.py for a working example."
+        )
+        return None
+    dialog = ToolsDialog([entry["label"] for entry in registry])
+    if not exec_dialog(dialog):
+        return None
+    index = dialog.selected_index()
+    if index is None:
+        return None
+    try:
+        return registry[index]["run"]()
+    except Exception as error:  # tool bugs surface, never crash the session
+        _error("Tool %r failed:\n%r" % (registry[index]["label"], error))
+        return None
 
 
 # -- app -----------------------------------------------------------------
