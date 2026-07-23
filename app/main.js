@@ -367,15 +367,30 @@ ipcMain.handle("hub:updateRun", async () => {
 
 // -- lifecycle -----------------------------------------------------------
 
-app.whenReady().then(() => {
-  openMain();
-  // The splash is machine-generated; if an update or cleanup removed it,
-  // quietly re-render so the next Houdini launch is branded again.
-  runCli(["splash", "--if-missing"]).catch(() => {});
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) openMain();
+// One instance only: opening the hub again (from Houdini, the Start Menu,
+// anywhere) focuses the running window instead of racing a second Chromium
+// profile — that race is what spams GPU-cache "Access is denied" errors.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    openMain();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
   });
-});
+
+  app.whenReady().then(() => {
+    openMain();
+    // The splash is machine-generated; if an update or cleanup removed it,
+    // quietly re-render so the next Houdini launch is branded again.
+    runCli(["splash", "--if-missing"]).catch(() => {});
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) openMain();
+    });
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
