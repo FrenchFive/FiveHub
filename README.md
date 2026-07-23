@@ -1,125 +1,180 @@
 # FiveHub
-HOUDINI CUSTOM DATABASE OF ASSET 
+
+**A project-based USD pipeline for Houdini teams** — projects, assets & shots with tasks, versioned work scenes, validated multi-format publishes, ingest, references, dependency-tracked shot assembly, and a render worker. Built for 1–10 artists on a shared server, for commercials and small films.
 
 ## SUMMARY :
-- [FEATURES](#features-)
-  <sub>What FiveHub is able to do</sub>
-- [SETUP](#setup-)
-  <sub>How to install FiveHub</sub>
-- [UPCOMING](#upcoming-)
-  <sub>What is in work</sub>
-
-## FEATURES :
-### 1. SAVE TO HUB
-  - **SELECT AND CLICK**
-    - Automatic Python Formating
-      - From node to code
-    - Renaming Geo to Name Format
-  - **IMAGE CAPTURE**
-    - Viewport Resetting
-      - Using User Current Viewport
-      - Default Camera Reset
-      - Hiding any other object in the scene that is not selected
-      - Framing aroung selected object
-      - Setting Lighting to be Headlight
-      - Setting Viewport to be Smooth with no Wireframe
-    - Viewport Capture
-  - **DATABASE ENTRY**
-    - Creation of a unique ID using UUID 4
-  - **AUTOMATIC FILE REPATHING**
-    - Moving File mentionned in the nodes into the FiveHub directory
-    - Repathing in the python file any path to the FiveHub directory
-    
-### 2. LOAD FROM HUB
-  - SQL Request to the Database
-  - QT Interface
-    - Grid Layout based on the window size
-    - Custom Warp Layout
-    - Categories Segmentation
-    - Each Asset has a button created linked to its image
-  - Python Execution of the formatted code
+- [THE PIPELINE](#the-pipeline-) — projects → entities → tasks → scenes → publishes
+- [MULTI-USER & SERVER](#multi-user--server-) — what makes it safe on a share
+- [INSIDE HOUDINI](#inside-houdini-) — the FIVE HUB menu
+- [VALIDATION](#validation-) — what gates a publish
+- [USD STRUCTURE](#usd-structure-) — component assets, animation, assemblies
+- [INGEST & REFERENCES](#ingest--references-)
+- [RENDERING](#rendering-) — jobs, worker, dailies
+- [THE APP](#the-app-) — the standalone UI
+- [SETUP](#setup-) — install script & deployment
+- [CLI](#cli-) — scripting surface
+- [DEVELOPMENT](#development-)
 
 ------
+
+## THE PIPELINE :
+
+```
+hub/                                    ← FIVEHUB_ROOT (put it on the server share)
+├── projects/<Project>/                 ← or anywhere, via the registry (LINKED)
+│   ├── project.json                    ← identity + project defaults (fps, res, range)
+│   ├── project.db                      ← per-project database
+│   ├── image.png · refs/ · reports/ · .trash/
+│   ├── assets/<Asset>/<task>/
+│   │   ├── scenes/<Asset>_<task>_v###.hip
+│   │   ├── caches/                     ← working sim caches ($FH_CACHES)
+│   │   ├── render/
+│   │   └── publish/<format>/v###/      ← usd · bgeo · vdb · obj · hda · fbx · abc · tex · render
+│   └── shots/<Shot>/<task>/            ← same layout; shots carry sequence,
+│                                          frame range, fps and resolution
+├── exchange/<user>/                    ← per-artist handoff (no collisions)
+├── registry.json                       ← projects living outside the hub
+└── backups/
+```
+
+- **Projects** are created in the app with a name, an image, and **where they live** (hub default or any folder — shared drive, synced repo). Each project owns its SQLite database.
+- **Shots carry metadata**: sequence grouping plus frame range / fps / resolution (project defaults, editable per shot). Houdini applies them on load; renders read them.
+- **Scenes** are versioned per task with notes — every save and publish is **signed** by the logged-in artist and timestamped.
+- **Publishes** are versioned per task *and format*; USD is the default and produces a full component asset. Deletion is **soft**: history stays in the database and files move to the project `.trash`.
+
+## THREE WAYS TO RUN :
+
+FiveHub is the same tool in all three — pick per project, mix freely:
+
+| Mode | Setup | How work is shared |
+|---|---|---|
+| **Local** | none — clone, install, go. The hub defaults to `<repo>/hub` | it isn't — solo work, full pipeline |
+| **Server** | point every machine's `FIVEHUB_ROOT` at a share | live: claims + presence + shared DB on the share |
+| **Git** | put a project in a repo (⋯ → *Set up Git*, or `git-setup`) | pull/push: **SYNC** in the app (`git-sync` = commit → pull --rebase → push → apply pulled records) |
+
+What makes git mode work: **the database is a local cache**. Every entity, task, scene, publish and dependency is mirrored as a tiny JSON *record sidecar* under `.fivehub/records/` — one file per record, so **git merges them without conflicts**. `project.db` is gitignored and rebuilds itself from the records whenever they change (after a pull, on a fresh clone, or via `fivehub rebuild`). A generated `.gitignore` keeps caches, renders, trash and the DB out of the repo; publishes and scenes are tracked (use git-lfs for heavy binaries if you like). On git projects, publishes and scene saves **auto-commit** with signed messages (`[fivehub] publish usd v003 Crate/modeling — Ana`; disable with `"git_autocommit": false` in `project.json`); pushing stays a deliberate SYNC. Two artists claiming the same version *offline* can't be prevented without a server — sync reports those rare collisions explicitly instead of hiding them.
+
+## MULTI-USER & SERVER :
+
+Built so several artists on one share cannot hurt each other:
+
+- **Atomic version claims** — scene and publish numbers are reserved in the database (UNIQUE-constraint claim) *before* any file is written. Two artists saving the same task get v004 and v005, never a silent overwrite. Failed writes release their claim and clean up.
+- **Network-filesystem-safe SQLite** — per-operation connections, DELETE journal (WAL is unsafe on NFS/SMB), busy timeout and retry-with-backoff.
+- **Relative paths in the database** — a hub mounted at `/mnt/hub`, `Z:\hub` and `/Volumes/hub` at the same time keeps working; paths resolve per machine.
+- **Per-user exchange** — staged imports and viewport captures live under `exchange/<user>/`.
+- **Presence** — opening/saving a scene marks the task "in use by <name>"; the app shows it on task chips and in the task window. Advisory, not a hard lock.
+- **Soft delete + trash** — nothing is ever hard-deleted from the UI; `fivehub trash <project> --empty --days 30` purges.
+- **Schema migrations** — databases carry a version and upgrade in place.
+- **Backups** — `python -m fivehub.cli backup` snapshots every project DB (SQLite backup API) + the registry into `hub/backups/<stamp>/`; run it from cron on the server.
+
+## INSIDE HOUDINI :
+
+| Menu item | What it does |
+|---|---|
+| **Save Scene As... / Increment Save** | Claim-safe versioned saves with notes; binds `$JOB` + `FH_*` vars to the project, applies shot range/fps, updates presence |
+| **Load Scene...** | Browse versions with notes; same context binding on open |
+| **Publish Selection...** | Context locked from the saved scene. Formats: **USD** (full validation, UVs + principled-shader textures carried), **BGEO / VDB / OBJ** (single frame or **frame-range sequences**), **HDA** (the selected node's definition library). ANIMATED toggle bakes the frame range — USD gets time-sampled points |
+| **Load Published Asset... / Import Staged** | Reference publishes (USD → `/stage`, sequences → `$F4` File SOPs, HDA → install). Every import is **tracked as a dependency** — pinned when you pick a version, following-latest when you take the root layer |
+| **Submit Render...** | Pick a ROP (from `/out` and `/stage`) + range (prefilled from the shot) → queued as a job for the FiveHub worker |
+| **Publish Shot Assembly** | One USD layer referencing everything this task imported — the whole shot in a single file |
+| **Open Hub App / Reload Pipeline** | |
+
+## VALIDATION :
+
+Errors block the publish; warnings are recorded. Reports are stored with the version (blocked attempts go to `reports/`), signed with who + when.
+
+| Rule | Checks | Severity |
+|---|---|---|
+| `naming.*` | asset/variant/mesh/material identifiers, UpperCamelCase style | ERROR / style WARNING |
+| `geo.empty` / `geo.unwelded` / `geo.degenerate` | faces exist · no coincident points · no broken faces | ERROR |
+| `geo.unused` | no points detached from faces | WARNING |
+| `scale.units` / `scale.bounds` / `scale.size` / `scale.origin` | sane units · non-degenerate · 1mm–100m · near origin | ERROR / WARNING |
+| `mtl.missing` / `mtl.unknown` | every face bound · every bound material shipped | ERROR |
+| `mtl.textures` | referenced texture files exist | ERROR |
+| `anim.topology` | animated meshes keep constant topology | ERROR |
+| `asset.thumbnail` | a capture was taken | WARNING |
+| files: `files.exist` / `files.format` | files exist & non-empty · extensions match format | ERROR / WARNING |
+
+## USD STRUCTURE :
+
+Every USD publish is a component asset in dependency-free `usda`: entry layer (`kind = "component"`, `assetInfo`, `extentsHint`, thumbnail via `AssetPreviewsAPI`), **payload arc inside a `geo` variantSet**, **geo/mtl split**. Lookdev is real now: **`st` UVs**, and principled-shader textures are **collected into the publish** and authored as `UsdUVTexture` networks (diffuse / roughness / metallic / normal). Animated publishes carry **time-sampled points** with the range in the layer metadata. Shot assemblies are `kind = "assembly"` layers referencing the tracked imports — pinned dependencies reference exact versions, unpinned ones follow each asset's root interface.
+
+## INGEST & REFERENCES :
+
+- **INGEST FILES** (task window, or `fivehub ingest ...`): drop vendor FBX / Alembic / USD kits / textures / caches into a task — validated, versioned, signed, same as any publish. Formats are inferred from extensions; mixed drops are rejected with a clear message.
+- **REFERENCES** (project window): a per-project gallery under `refs/` for boards, briefs and style frames — add via file picker, view images inline, trash via ⋯.
+
+## RENDERING :
+
+1. **Submit** from Houdini (menu) or `fivehub render <project> shot SH010 lighting 3 /out/karma1` — range/fps come from the shot.
+2. **Worker** — run `python -m fivehub.cli worker` on the server (or any Houdini machine; several workers coexist, jobs are claimed atomically). It opens the scene in `hython` (set `FIVEHUB_HYTHON` if not on PATH), drives the ROP, and registers the frames as a **render publish** (`publish/render/v###/`).
+3. **Dailies** — when `ffmpeg` is on the worker, an encode job follows automatically and writes `preview.mp4` next to the frames.
+4. The app's **JOBS** section shows queue state per project; queued jobs can be cancelled.
+
+## THE APP :
+
+Mainly white, black ink, red only for critical/destructive (see [STYLEGUIDE.md](STYLEGUIDE.md)). Separate windows, auto-refreshing every 30s so you see teammates' work land:
+
+- **LOGIN** — a name that signs everything.
+- **PROJECTS** — cards with image/counts; NEW PROJECT sheet (name, **location**, image); ⋯ open/reveal/unlink/delete.
+- **PROJECT** — scoped to one project: **search**, ASSETS and SHOTS (**grouped by sequence**, frame ranges shown, **presence dots** on task chips), entity sheets with task toggles + **shot metadata editing**, **REFERENCES** gallery, **JOBS**, and the activity feed.
+- **TASK** — scenes (icon-only **Open in Houdini** launching with `$JOB` set, ⋯ edit/delete), publishes with **thumbnails**, BY/PUBLISHED columns, **INGEST FILES**, and a **DEPENDENCIES** panel (uses / used-by, pinned vs latest, "v005 AVAILABLE" nudges).
+- **VALIDATION** — verdict + rule breakdown, signed.
+
+Package installers: `cd app && npm install && npm run dist` (electron-builder → dmg/nsis/AppImage in `app/dist`).
 
 ## SETUP :
 
-### 1. CHOOSE YOUR DIRECTORY :
+1. Clone where the pipeline lives (server share for teams) and point everyone's `FIVEHUB_ROOT` at the same hub directory.
+2. Per workstation: `python houdini/install.py` (writes one Houdini package file; delete it to uninstall). The package also sets the **FIVE HUB splash screen** — Houdini launches wearing the pipeline (goop, Satoshi Black wordmark, FiveHub + Houdini versions, license type). Regenerate it with your session's real facts via `fivehub.cli splash` or **Pipeline Tools ▸ Regenerate FiveHub Splash**.
+3. (Optional, recommended) Drop the free **Satoshi** family into `assets/fonts/` — see its README — so the app, Qt windows and splash wear the brand typeface; everything falls back to system fonts without it.
+4. App: `cd app && npm install` (or distribute a built installer).
+5. Server: a cron for `python -m fivehub.cli backup`, and `python -m fivehub.cli worker` as a service for renders.
 
-DIRECTORY IS IMPORTANT
+Env vars: `FIVEHUB_ROOT` (hub), `FIVEHUB_USER` (identity override), `FIVEHUB_HOUDINI` (GUI binary for the app's open buttons), `FIVEHUB_HYTHON` (worker), `FIVEHUB_PYTHON` (app→CLI bridge).
 
-This directory will hold :
-  - Code
-  - Toolbar
-  - Assets
-  - Database
+## CLI :
 
-### 2. OPEN CMD FROM DIRECTORY :
-
-You can achieve this either by traveling through your **File Explorer** 
 ```
-%windir%\explorer.exe
-```
-
-Right Clicking the folder :: **"Open in Terminal"**
-
-OR 
-
-Opening your CMD : 
-```
-cd C:/Users/.../your-path
+login / whoami / projects / project-create [--location] / project-remove
+entity-create|update|delete  (--sequence --frame-start --frame-end --fps --res-x --res-y)
+task-create / task-delete / browse / task-info
+send / activity / log / report --path
+ingest <project> <kind> <entity> <task> <files...>
+refs <project> [--add ...|--delete NAME]
+scene-notes / scene-delete / publish-comment / publish-delete
+render <project> <kind> <entity> <task> <scene_version> <rop> [--start --end --step]
+jobs <project> [--cancel ID]     worker [--project] [--once]
+assemble <project> <entity> <task>
+trash <project> [--empty --days N]     backup     demo
 ```
 
-### 3. GIT CLONE :
+Every command prints JSON; `--hub` overrides the root.
 
-Cloning the project in your CMD :
+## EXTENDING — YOUR HDAS & TOOLS :
+
+FiveHub is the base; the pipeline grows by dropping things in, never by editing core:
+
+- **Pipeline HDAs** → drop `.hda` files into `houdini/otls/`. They load in every session automatically (the folder is on Houdini's HDA scan path via the package). Commit them; teammates get them on next launch/pull. Build your custom FileCache here whenever it outgrows the Python version.
+- **Project HDAs** → publish them (format `hda`) into the show; FiveHub **auto-installs a project's latest HDA publishes** when you open one of its scenes — show tools follow the show.
+- **Python tools** → add a module in `fivehub/tools/`. Decorators plug it into every surface, no registration files:
+  - `@houdini_tool("Label")` → appears under **FIVE HUB ▸ Pipeline Tools...**
+  - `@cli_command("name", "help", configure)` → becomes a `fivehub.cli` subcommand (and is reachable from the app)
+  - `@validation_rule` → joins the USD publish gate
+  - `@job_handler("type")` → executed by the worker
+  A broken tool is reported and skipped — it never takes the pipeline down.
+- **The shipped example** is exactly the cache workflow: `fivehub/tools/cachepath.py` defines the cache nomenclature (`<task>/caches/<name>/v###/<Entity>_<task>_<name>_v###.$F4.bgeo.sc`), exposes it as `cache-path` on the CLI, and registers **Create Pipeline File Cache** — a filecache SOP dropped after your selection, pre-pointed at `$FH_CACHES` (which FiveHub binds to the scene's task on load/save).
+
+## DEVELOPMENT :
+
 ```
-git clone https://github.com/FrenchFive/FiveHub.git
+python -m unittest discover -s tests -v    # 51 tests, no external deps
+python -m fivehub.cli demo                 # demo project for the app
 ```
 
-### 5. CHOOSE HOUDINI VERSION :
+Core is dependency-free Python; the app shells out to the CLI so storage has one implementation. Houdini modules are compile-checked in CI-less environments — exercise them with a `hython` smoke run studio-side.
 
-TO MATCH YOUR HOUDINI VERSION IT IS IMPORTANT TO NOTE THE HOUDINI VERSION IN THE ``` setup.py ```
-
-DEFAULT :: ""19.5""
-
-![CODE](https://github.com/FrenchFive/FiveHub/assets/105274118/f73e1004-619b-4816-9431-808ddd26943a)
-
-
-![HOUDINI_VERSION](https://github.com/FrenchFive/FiveHub/assets/105274118/be1633d4-633c-49ea-8c53-09f8d04d8875)
-
-
-### 6. RUN SETUP.PY
-
-Answer to setup Questions :
-
-> Do you want to change the version ? (y/n)
-
-<sub>This will allow FiveHub to determine where is located your Houdini Env Folder.</sub>
-- yes :
-  - Input a custom version : 20.0 ( no needs of the last dot 19.5 ~~.605~~ )
-- no :
-  - Use the default version `19.5`
-
-
-> Do you want to install locally ? (y/n)
-
-<sub>This will allow FiveHub to add lines to your .env File, This process will add the Toolbar folder and the Python Script in the list of folders Houdini needs to check during the launch</sub>
-- yes :
-  - Will add the necessary lines to your local `.env` file.
-- no :
-  - Will **NOT** add the necessary lines to your local `.env` file.
-
-> [!WARNING]
-> Not allowing FiveHub to change Env Variable may lead to FiveHub to not be found or recognized by Houdini. 
-
-Recommened answer are : **`no`** / **`yes`**
-
-### 7. LAUNCH HOUDINI 
-
-------
-## UPCOMING : 
-- [x] REPATHING AND MOVING EXTERNAL FILES
-- [ ] MAKING SURE THAT FILES DONT OVERWRITE EACH OTHER
-- [ ] FUZZY FIND ??
-- [x] CATEGORIES
-- [x] Filename more readable
+## UPCOMING :
+- [ ] Proxy purpose geometry (viewport LODs) and instanceable assembly refs
+- [ ] Deadline/Tractor adapter as an alternative to the built-in worker
+- [ ] Review page for dailies (per-shot mp4 playlist)

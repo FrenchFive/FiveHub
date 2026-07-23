@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src file:; font-src 'self'" />
+  <title>FIVEHUB</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="bar">
+      <div class="brand">FIVEHUB</div>
+      <div class="spacer"></div>
+      <div class="user-pill hidden" id="user"></div>
+      <button class="btn solid" id="new-project">NEW PROJECT</button>
+    </header>
+    <main class="content">
+      <div id="projects"></div>
+    </main>
+    <footer class="bar">
+      <div class="mono" id="hub-path"></div>
+      <div class="label" id="count"></div>
+    </footer>
+  </div>
+  <svg class="goo-defs" aria-hidden="true">
+    <defs>
+      <filter id="goo">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="12" result="blur" />
+        <feColorMatrix in="blur" mode="matrix"
+          values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -11" result="goo" />
+        <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+      </filter>
+    </defs>
+  </svg>
+  <script src="common.js"></script>
+  <script src="projects.js"></script>
+</body>
+</html>

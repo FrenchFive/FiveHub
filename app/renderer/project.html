@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src file:; font-src 'self'" />
+  <title>FIVEHUB — PROJECT</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="bar">
+      <div class="brand">FIVEHUB</div>
+      <input type="text" id="search" placeholder="Search assets & shots" style="flex:1; max-width: 320px" />
+      <div class="spacer"></div>
+      <div class="label" id="counts"></div>
+    </header>
+    <main class="content">
+      <div class="stack">
+        <div class="row" id="title-row"></div>
+        <div class="columns">
+          <section>
+            <div class="section-head">
+              <div class="label">ASSETS</div>
+              <button class="btn round" id="add-asset" title="New asset" aria-label="New asset">+</button>
+            </div>
+            <div id="assets" class="entity-list"></div>
+          </section>
+          <section>
+            <div class="section-head">
+              <div class="label">SHOTS</div>
+              <button class="btn round" id="add-shot" title="New shot" aria-label="New shot">+</button>
+            </div>
+            <div id="shots" class="entity-list"></div>
+          </section>
+        </div>
+        <section>
+          <div class="section-head">
+            <div class="label">REFERENCES</div>
+            <button class="btn round" id="add-refs" title="Add reference images" aria-label="Add references">+</button>
+          </div>
+          <div id="refs"></div>
+        </section>
+        <section>
+          <div class="section-head">
+            <div class="label">JOBS — RENDERS & ENCODES</div>
+          </div>
+          <div id="jobs"></div>
+        </section>
+        <section>
+          <div class="section-head">
+            <div class="label">ACTIVITY — THIS PROJECT ONLY</div>
+          </div>
+          <div id="activity"></div>
+        </section>
+      </div>
+    </main>
+    <footer class="bar">
+      <div class="mono" id="project-path"></div>
+    </footer>
+  </div>
+  <script src="common.js"></script>
+  <script src="project.js"></script>
+</body>
+</html>
