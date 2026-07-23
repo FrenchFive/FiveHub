@@ -156,6 +156,8 @@ and when a newer version is tagged on `main` a small popup offers it —
 next launch. The **UPDATE — vX.Y.Z** button stays in the header the whole
 time an update exists. Houdini has **FIVE HUB ▸ Check for Updates**; after
 an update, restart Houdini (or Reload Pipeline for python-only changes).
+Every update (and every installer run) re-renders the splash art, so
+Houdini always launches with the latest FIVE HUB look.
 Manual: `python -m fivehub.cli update [--check]`. Server deployments
 update once for everyone — pull the shared clone. Set
 `FIVEHUB_NO_AUTOUPDATE=1` to mute the popup (the button still works).
