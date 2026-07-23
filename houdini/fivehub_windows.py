@@ -23,28 +23,43 @@ except ImportError:  # Houdini 20.5+
 from fivehub import config
 from fivehub.project import get_project, list_projects
 
+# Mainly white, black ink, rounded — red appears only when a publish is
+# blocked (the failed report heading). Matches the hub app's design system.
 STYLE = """
-QDialog, QWidget { background: #000000; color: #ffffff;
-    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 12px; }
-QLabel { background: transparent; letter-spacing: 2px; }
-QLabel#heading { font-size: 20px; letter-spacing: 6px; }
-QLabel#hint { font-size: 10px; letter-spacing: 3px; }
+QDialog { background: #f5f5f7; }
+QWidget { background: transparent; color: #0b0b0c;
+    font-family: "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 12px; }
+QLabel { background: transparent; }
+QLabel#heading { font-size: 21px; font-weight: 700; }
+QLabel#headingFail { font-size: 21px; font-weight: 700; color: #ff3b30; }
+QLabel#hint { font-size: 10px; font-weight: 600; letter-spacing: 1px;
+    color: #6e6e73; }
 QLineEdit, QComboBox, QPlainTextEdit, QListWidget {
-    background: #000000; color: #ffffff; border: 1px solid #ffffff;
-    padding: 6px; selection-background-color: #ffffff; selection-color: #000000; }
-QComboBox::drop-down { border: none; width: 24px; }
-QComboBox QAbstractItemView { background: #000000; color: #ffffff;
-    border: 1px solid #ffffff; selection-background-color: #ffffff;
-    selection-color: #000000; outline: none; }
-QListWidget::item { padding: 8px; }
-QListWidget::item:selected { background: #ffffff; color: #000000; }
-QPushButton { background: #000000; color: #ffffff; border: 1px solid #ffffff;
-    padding: 9px 22px; letter-spacing: 3px; }
-QPushButton:hover { background: #ffffff; color: #000000; }
-QPushButton#primary { background: #ffffff; color: #000000; }
-QPushButton#primary:hover { background: #000000; color: #ffffff; }
-QScrollBar:vertical { background: #000000; width: 10px; }
-QScrollBar::handle:vertical { background: #ffffff; min-height: 24px; }
+    background: #ffffff; color: #0b0b0c;
+    border: 1px solid rgba(0, 0, 0, 40); border-radius: 10px;
+    padding: 7px 10px;
+    selection-background-color: #0b0b0c; selection-color: #ffffff; }
+QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus {
+    border: 1px solid rgba(0, 0, 0, 90); }
+QComboBox::drop-down { border: none; width: 26px; }
+QComboBox QAbstractItemView { background: #ffffff; color: #0b0b0c;
+    border: 1px solid rgba(0, 0, 0, 40); border-radius: 10px;
+    selection-background-color: #0b0b0c; selection-color: #ffffff;
+    outline: none; }
+QListWidget::item { padding: 9px; border-radius: 8px; }
+QListWidget::item:selected { background: #0b0b0c; color: #ffffff; }
+QPushButton { background: #ffffff; color: #0b0b0c;
+    border: 1px solid rgba(0, 0, 0, 40); border-radius: 16px;
+    padding: 8px 22px; font-weight: 600; }
+QPushButton:hover { background: #ececee; }
+QPushButton:pressed { background: #e0e0e2; }
+QPushButton#primary { background: #0b0b0c; color: #ffffff;
+    border: 1px solid #0b0b0c; }
+QPushButton#primary:hover { background: #26262a; }
+QScrollBar:vertical { background: transparent; width: 12px; }
+QScrollBar::handle:vertical { background: rgba(0, 0, 0, 60);
+    border-radius: 6px; min-height: 24px; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
 """
 
@@ -181,14 +196,14 @@ class ContextWidget(QtWidgets.QWidget):
 
 
 class _BaseDialog(QtWidgets.QDialog):
-    def __init__(self, heading, parent=None):
+    def __init__(self, heading, parent=None, heading_object="heading"):
         super(_BaseDialog, self).__init__(parent or hou.qt.mainWindow())
         self.setStyleSheet(STYLE)
         self.setWindowTitle("FIVE HUB")
         self.layout_ = QtWidgets.QVBoxLayout(self)
         self.layout_.setContentsMargins(26, 26, 26, 26)
         self.layout_.setSpacing(16)
-        self.layout_.addWidget(_label(heading, "heading"))
+        self.layout_.addWidget(_label(heading, heading_object))
 
     def add_buttons(self, confirm_text):
         row = QtWidgets.QHBoxLayout()
@@ -409,11 +424,14 @@ class LoadAssetDialog(_BaseDialog):
 
 
 class ReportDialog(_BaseDialog):
-    """Pass/fail validation report, rendered plain in black & white."""
+    """Pass/fail validation report. The failed heading is the one place
+    the accent red appears inside Houdini."""
 
     def __init__(self, report, extra="", parent=None):
         heading = "VALIDATION PASSED" if report.passed else "VALIDATION FAILED"
-        super(ReportDialog, self).__init__(heading, parent)
+        super(ReportDialog, self).__init__(
+            heading, parent, heading_object="heading" if report.passed else "headingFail"
+        )
         self.resize(720, 560)
 
         text = report.to_text()

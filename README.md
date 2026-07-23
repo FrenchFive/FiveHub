@@ -1,6 +1,6 @@
 # FiveHub
 
-**A project-based USD publishing pipeline for Houdini** — projects, assets & shots with tasks, versioned work scenes, validated multi-format publishes, and a standalone black & white hub app.
+**A project-based USD publishing pipeline for Houdini** — projects, assets & shots with tasks, versioned work scenes, validated multi-format publishes, and a standalone hub app in a mainly-white black & white design with a rare red accent.
 
 ## SUMMARY :
 - [THE PIPELINE](#the-pipeline-) — projects → entities → tasks → scenes → publishes
@@ -58,7 +58,7 @@ After install, a **FIVE HUB** menu sits in Houdini's main menu bar:
 | **Open Hub App** | Launches the standalone Electron app |
 | **Reload Pipeline** | Developer helper |
 
-All FiveHub windows inside Houdini are Qt (PySide2/PySide6), parented to the main window and styled in the same pure black & white language as the app. A shelf with SAVE + / PUBLISH / IMPORT / HUB mirrors the most-used actions.
+All FiveHub windows inside Houdini are Qt (PySide2/PySide6), parented to the main window and styled in the same mainly-white, rounded language as the app — the accent red appears only on a blocked validation. A shelf with SAVE + / PUBLISH / IMPORT / HUB mirrors the most-used actions.
 
 ## VALIDATION :
 
@@ -94,7 +94,7 @@ Every USD publish is a proper component asset, authored as dependency-free `usda
 
 ## THE APP :
 
-Standalone Electron app, separate windows, two colors only (`#000` / `#fff`):
+Standalone Electron app, separate windows. Mainly white, black ink, easy on artists' eyes: white cards on a soft `#F5F5F7` wash, rounded corners and pill controls, Apple-spring motion with metaball ambience — and **red (`#FF3B30`) reserved for critical states only** (blocked publishes, error-level rule failures):
 
 - **PROJECTS** — project cards with image and counts; **create projects** (name + image picker); seed the demo
 - **PROJECT** — one window per project: ASSETS and SHOTS columns, **create entities and tasks** in place (task suggestions built in), task chips with scene/publish counts

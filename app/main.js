@@ -81,7 +81,7 @@ function createWindow(page, query, options) {
     height: options.height,
     minWidth: 480,
     minHeight: 340,
-    backgroundColor: "#000000",
+    backgroundColor: "#f5f5f7",
     autoHideMenuBar: true,
     title: options.title || "FIVEHUB",
     webPreferences: {
