@@ -90,6 +90,34 @@ fivehub_houdini.import_staged()
 
       <separatorItem/>
 
+      <scriptItem id="fivehub_submit_render">
+        <label>Submit Render...</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.submit_render()
+]]></scriptCode>
+      </scriptItem>
+
+      <scriptItem id="fivehub_publish_assembly">
+        <label>Publish Shot Assembly</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.publish_shot_assembly()
+]]></scriptCode>
+      </scriptItem>
+
+      <separatorItem/>
+
       <scriptItem id="fivehub_open_hub">
         <label>Open Hub App</label>
         <scriptCode><![CDATA[

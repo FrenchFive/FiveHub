@@ -11,13 +11,19 @@ from dataclasses import dataclass, field
 
 @dataclass
 class MaterialData:
-    """A material to author as a UsdPreviewSurface network."""
+    """A material to author as a UsdPreviewSurface network.
+
+    ``textures`` maps channel -> image file path. Supported channels:
+    ``diffuse``, ``roughness``, ``metallic``, ``normal``. The publisher
+    collects the files into the publish and re-points the paths.
+    """
 
     name: str
     base_color: tuple = (0.18, 0.18, 0.18)
     roughness: float = 0.5
     metallic: float = 0.0
     source_path: str = ""
+    textures: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -30,9 +36,13 @@ class MeshData:
     face_vertex_indices: list = field(default_factory=list)
     # Optional per-face-vertex normals, same ordering as face_vertex_indices.
     normals: list = None
+    # Optional per-face-vertex UVs ((u, v) tuples), same ordering.
+    uvs: list = None
     # Optional material name per face (None entries = unassigned face).
     face_materials: list = None
     display_color: tuple = None
+    # Optional animation: frame -> points list (topology must be constant).
+    point_samples: dict = None
 
     @property
     def face_count(self):
@@ -93,6 +103,10 @@ class PublishRequest:
     thumbnail: str = None
     meters_per_unit: float = 1.0
     up_axis: str = "Y"
+    # Animation range (used when meshes carry point_samples).
+    frame_start: float = None
+    frame_end: float = None
+    fps: float = None
     source: SourceInfo = field(default_factory=SourceInfo)
 
     def bounds(self):

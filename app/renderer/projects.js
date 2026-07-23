@@ -214,3 +214,4 @@ async function load() {
 }
 
 ensureLogin().then(load);
+autoRefresh(load);

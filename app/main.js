@@ -210,6 +210,44 @@ ipcMain.handle("hub:publishComment", (_event, context, format, version, comment)
     format, String(version), "--comment", comment || "",
   ]),
 );
+ipcMain.handle("hub:entityUpdate", (_event, project, kind, name, fields) => {
+  const args = ["entity-update", project, kind, name];
+  const flags = {
+    sequence: "--sequence",
+    frame_start: "--frame-start",
+    frame_end: "--frame-end",
+    fps: "--fps",
+    res_x: "--res-x",
+    res_y: "--res-y",
+  };
+  for (const [key, flag] of Object.entries(flags)) {
+    if (fields[key] !== undefined && fields[key] !== null && fields[key] !== "") {
+      args.push(flag, String(fields[key]));
+    }
+  }
+  return runCli(args);
+});
+ipcMain.handle("hub:ingest", (_event, context, files, name, comment) => {
+  const args = [
+    "ingest", context.project, context.kind, context.entity, context.task, ...files,
+  ];
+  if (name) args.push("--name", name);
+  if (comment) args.push("--comment", comment);
+  return runCli(args);
+});
+ipcMain.handle("hub:refs", (_event, project) => runCli(["refs", project]));
+ipcMain.handle("hub:refsAdd", (_event, project, files) =>
+  runCli(["refs", project, "--add", ...files]),
+);
+ipcMain.handle("hub:refsDelete", (_event, project, name) =>
+  runCli(["refs", project, "--delete", name]),
+);
+ipcMain.handle("hub:jobs", (_event, project, limit) =>
+  runCli(["jobs", project, "--limit", String(limit || 30)]),
+);
+ipcMain.handle("hub:jobCancel", (_event, project, jobId) =>
+  runCli(["jobs", project, "--cancel", jobId]),
+);
 
 ipcMain.handle("win:project", (_event, name) => openProject(name));
 ipcMain.handle("win:task", (_event, context) => openTask(context));
@@ -261,13 +299,25 @@ function resolveHoudini() {
   return null;
 }
 
-ipcMain.handle("os:openScene", async (_event, sceneFile) => {
+ipcMain.handle("os:pickFiles", async (event, title) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const picked = await dialog.showOpenDialog(win, {
+    title: title || "Pick files",
+    properties: ["openFile", "multiSelections"],
+  });
+  return picked.canceled ? [] : picked.filePaths;
+});
+
+ipcMain.handle("os:openScene", async (_event, sceneFile, projectRoot) => {
   const binary = resolveHoudini();
   if (binary) {
+    // $JOB rides along so relative paths resolve inside Houdini.
+    const env = { ...process.env };
+    if (projectRoot) env.JOB = projectRoot;
     const child = spawn(binary, [sceneFile], {
       detached: true,
       stdio: "ignore",
-      env: process.env,
+      env,
     });
     child.unref();
     return { via: "houdini", binary };

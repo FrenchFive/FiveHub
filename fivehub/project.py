@@ -1,24 +1,39 @@
 """Projects: creation, browsing, scene versioning and path logic.
 
-A Project wraps one directory under ``<hub>/projects`` and its database.
-All name rules are enforced here at creation time, so everything that ever
-reaches disk or the database is a valid USD identifier.
+A Project wraps one directory (in the hub or at a registered external
+location) and its database. Multi-user rules live here:
+
+- the database stores project-relative paths; this class translates to
+  absolute paths at its boundary, so mixed-OS mounts keep working,
+- scene and publish versions are claimed atomically in the database
+  before any file is written — no two artists can collide on a version,
+- deletion is soft: rows keep their history and files move to the
+  project's ``.trash`` instead of disappearing.
 """
 
 import json
 import os
 import shutil
+import time
 from types import SimpleNamespace
 
 from . import config, naming
 from .projectdb import ProjectDB
 from .report import utc_now
 
+DEFAULT_SETTINGS = {
+    "fps": 24.0,
+    "res_x": 1920,
+    "res_y": 1080,
+    "frame_start": 1001,
+    "frame_end": 1100,
+}
+
 
 class Project:
     def __init__(self, root):
-        self.root = root
-        self.name = os.path.basename(root)
+        self.root = os.path.abspath(root)
+        self.name = os.path.basename(self.root)
         self._db = None
 
     # -- infrastructure --------------------------------------------------
@@ -40,12 +55,45 @@ class Project:
         except (OSError, ValueError):
             return {"name": self.name, "image": "", "created_at": ""}
 
+    def settings(self):
+        merged = dict(DEFAULT_SETTINGS)
+        merged.update(self.meta().get("settings", {}))
+        return merged
+
     def image_path(self):
         image = self.meta().get("image", "")
         return os.path.join(self.root, image) if image else ""
 
     def reports_dir(self):
         return os.path.join(self.root, config.PROJECT_REPORTS_DIR)
+
+    def refs_dir(self):
+        return os.path.join(self.root, config.REFS_DIR)
+
+    def trash_dir(self):
+        return os.path.join(self.root, config.TRASH_DIR)
+
+    # -- path translation (database <-> disk) ---------------------------
+
+    def rel(self, path):
+        """Project-relative posix path for storage."""
+        if not path:
+            return ""
+        return os.path.relpath(os.path.abspath(path), self.root).replace(os.sep, "/")
+
+    def absolute(self, stored):
+        """Stored project-relative path back to an absolute one."""
+        if not stored:
+            return ""
+        if os.path.isabs(stored):
+            return stored  # pre-migration rows
+        return os.path.normpath(os.path.join(self.root, stored))
+
+    def _abs_row(self, row, keys=("file", "path", "report_path", "thumbnail")):
+        for key in keys:
+            if key in row and row[key]:
+                row[key] = self.absolute(row[key])
+        return row
 
     # -- paths -----------------------------------------------------------
 
@@ -57,6 +105,12 @@ class Project:
 
     def scenes_dir(self, kind, entity, task):
         return os.path.join(self.task_dir(kind, entity, task), config.SCENES_DIR)
+
+    def caches_dir(self, kind, entity, task):
+        return os.path.join(self.task_dir(kind, entity, task), config.CACHES_DIR)
+
+    def render_dir(self, kind, entity, task):
+        return os.path.join(self.task_dir(kind, entity, task), config.RENDER_DIR)
 
     def publish_dir(self, kind, entity, task, format_name):
         return os.path.join(
@@ -71,13 +125,31 @@ class Project:
 
     # -- entities & tasks ------------------------------------------------
 
-    def create_entity(self, kind, name):
+    def create_entity(self, kind, name, sequence="", frame_start=None,
+                      frame_end=None, fps=None, res_x=None, res_y=None):
         errors = naming.asset_name_errors(name)
         if errors:
             raise ValueError("; ".join(errors))
-        self.db.create_entity(kind, name)
+        if kind == "shot":
+            # Shots always carry usable frame/format metadata.
+            defaults = self.settings()
+            frame_start = defaults["frame_start"] if frame_start is None else frame_start
+            frame_end = defaults["frame_end"] if frame_end is None else frame_end
+            fps = defaults["fps"] if fps is None else fps
+            res_x = defaults["res_x"] if res_x is None else res_x
+            res_y = defaults["res_y"] if res_y is None else res_y
+        self.db.create_entity(
+            kind, name, sequence=sequence, frame_start=frame_start,
+            frame_end=frame_end, fps=fps, res_x=res_x, res_y=res_y,
+        )
         os.makedirs(self.entity_dir(kind, name), exist_ok=True)
         return name
+
+    def update_entity(self, kind, name, **fields):
+        record = self.db.get_entity(kind, name)
+        if record is None:
+            raise ValueError("unknown %s %r" % (kind, name))
+        self.db.update_entity(record["id"], **fields)
 
     def create_task(self, kind, entity, task):
         task = str(task or "").strip().lower()
@@ -89,9 +161,12 @@ class Project:
         if record is None:
             raise ValueError("unknown %s %r" % (kind, entity))
         self.db.create_task(record["id"], task)
-        os.makedirs(self.scenes_dir(kind, entity, task), exist_ok=True)
-        os.makedirs(os.path.join(self.task_dir(kind, entity, task), config.PUBLISH_DIR),
-                    exist_ok=True)
+        for directory in (
+            self.scenes_dir(kind, entity, task),
+            self.caches_dir(kind, entity, task),
+            os.path.join(self.task_dir(kind, entity, task), config.PUBLISH_DIR),
+        ):
+            os.makedirs(directory, exist_ok=True)
         return task
 
     def _task_record(self, kind, entity, task):
@@ -110,51 +185,171 @@ class Project:
         record = self.db.get_entity(kind, entity)
         return self.db.list_tasks(record["id"]) if record else []
 
-    # -- scenes ----------------------------------------------------------
+    # -- scenes (claim -> write -> complete) -----------------------------
 
     def next_scene_version(self, kind, entity, task):
+        """Peek only — the real number is fixed by claim_scene."""
         return self.db.next_scene_version(self._task_record(kind, entity, task)["id"])
 
-    def next_scene_path(self, kind, entity, task):
-        version = self.next_scene_version(kind, entity, task)
-        return self.scene_path(kind, entity, task, version), version
+    def claim_scene(self, kind, entity, task, user=""):
+        """Reserve the next scene version; returns (absolute path, version).
 
-    def register_scene(self, kind, entity, task, version, file, notes="", user=""):
-        if not os.path.isfile(file):
-            raise ValueError("scene file was not written: %s" % file)
+        The claim guarantees no other artist gets the same version — write
+        the file at the returned path, then call complete_scene (or
+        release_scene if the save failed)."""
+        task_record = self._task_record(kind, entity, task)
+        version = self.db.claim_scene_version(
+            task_record["id"],
+            lambda v: self.rel(self.scene_path(kind, entity, task, v)),
+            user=user,
+        )
+        path = self.scene_path(kind, entity, task, version)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        return path, version
+
+    def complete_scene(self, kind, entity, task, version, notes="", user=""):
+        path = self.scene_path(kind, entity, task, version)
+        if not os.path.isfile(path):
+            raise ValueError("scene file was not written: %s" % path)
         if not user:
             from .user import get_user
 
             user = get_user()
         task_record = self._task_record(kind, entity, task)
-        self.db.record_scene(task_record["id"], version, file, notes, user)
+        self.db.complete_scene(task_record["id"], version, notes, user)
+        return path
+
+    def release_scene(self, kind, entity, task, version):
+        task_record = self._task_record(kind, entity, task)
+        self.db.release_scene(task_record["id"], version)
+
+    def register_scene(self, kind, entity, task, notes="", user="", writer=None):
+        """Convenience for tests/scripts: claim, write via ``writer(path)``
+        (default: empty file), complete. Returns (path, version)."""
+        path, version = self.claim_scene(kind, entity, task, user)
+        try:
+            if writer is not None:
+                writer(path)
+            elif not os.path.isfile(path):
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write("")
+            self.complete_scene(kind, entity, task, version, notes, user)
+        except Exception:
+            self.release_scene(kind, entity, task, version)
+            raise
+        return path, version
 
     def scenes(self, kind, entity, task):
-        return self.db.list_scenes(self._task_record(kind, entity, task)["id"])
+        rows = self.db.list_scenes(self._task_record(kind, entity, task)["id"])
+        return [self._abs_row(row) for row in rows]
+
+    def get_scene(self, kind, entity, task, version):
+        row = self.db.get_scene(self._task_record(kind, entity, task)["id"], version)
+        return self._abs_row(row) if row else None
 
     # -- publishes -------------------------------------------------------
 
-    def publishes(self, kind, entity, task):
-        return self.db.list_publishes(self._task_record(kind, entity, task)["id"])
+    def claim_publish(self, kind, entity, task, name, format_name, variant, user=""):
+        task_record = self._task_record(kind, entity, task)
+        return self.db.claim_publish_version(
+            task_record["id"], name, format_name, variant, user
+        )
 
-    # -- edits & deletions -----------------------------------------------
+    def complete_publish(self, kind, entity, task, format_name, version, report,
+                         path="", report_path="", thumbnail="", comment="", user=""):
+        task_record = self._task_record(kind, entity, task)
+        self.db.complete_publish(
+            task_record["id"], format_name, version, report,
+            path=self.rel(path), report_path=self.rel(report_path),
+            thumbnail=self.rel(thumbnail), comment=comment, user=user,
+        )
+
+    def release_publish(self, kind, entity, task, format_name, version):
+        task_record = self._task_record(kind, entity, task)
+        self.db.release_publish(task_record["id"], format_name, version)
+
+    def record_blocked_publish(self, kind, entity, task, name, format_name,
+                               variant, report, report_path="", comment="", user=""):
+        task_record = self._task_record(kind, entity, task)
+        self.db.record_blocked_publish(
+            task_record["id"], name, format_name, variant, report,
+            report_path=self.rel(report_path), comment=comment, user=user,
+        )
+
+    def publishes(self, kind, entity, task):
+        rows = self.db.list_publishes(self._task_record(kind, entity, task)["id"])
+        return [self._abs_row(row) for row in rows]
+
+    def get_publish(self, kind, entity, task, format_name, version):
+        row = self.db.get_publish(
+            self._task_record(kind, entity, task)["id"], format_name, version
+        )
+        return self._abs_row(row) if row else None
+
+    def latest_publish(self, kind, entity, task, format_name=None):
+        row = self.db.latest_publish(
+            self._task_record(kind, entity, task)["id"], format_name
+        )
+        return self._abs_row(row) if row else None
+
+    def publish_history(self, limit=100):
+        return [self._abs_row(row) for row in self.db.publish_history(limit)]
+
+    def recent_scenes(self, limit=20):
+        return [self._abs_row(row) for row in self.db.recent_scenes(limit)]
+
+    def browse(self):
+        """Full project tree for the app: entities with their tasks."""
+        tree = {"name": self.name, **self.meta(), "image_path": self.image_path(),
+                "root": self.root, "settings": self.settings()}
+        presence = {row["task_id"]: row for row in self.db.list_presence()}
+        for kind in config.KINDS:
+            entries = []
+            for entity in self.entities(kind):
+                tasks = self.db.list_tasks(entity["id"])
+                for task in tasks:
+                    active = presence.get(task["id"])
+                    task["active_user"] = active["user"] if active else ""
+                entries.append({**entity, "tasks": tasks})
+            tree[config.kind_dir(kind)] = entries
+        tree["counts"] = self.db.counts()
+        return tree
+
+    # -- edits & deletions (soft: rows keep history, files go to trash) --
 
     def _inside_root(self, path):
         target = os.path.abspath(path)
-        root = os.path.abspath(self.root)
         try:
-            return os.path.commonpath([root, target]) == root
+            return os.path.commonpath([self.root, target]) == self.root
         except ValueError:
             return False
 
-    def _remove_path(self, path):
-        """Delete a file or tree, but only ever inside this project."""
-        if not path or not self._inside_root(path):
-            return
-        if os.path.isdir(path):
-            shutil.rmtree(path, ignore_errors=True)
-        elif os.path.isfile(path):
-            os.remove(path)
+    def _trash(self, path, label):
+        """Move a file or tree into the project trash (never delete)."""
+        if not path or not self._inside_root(path) or not os.path.exists(path):
+            return ""
+        stamp = utc_now().replace(":", "").replace("-", "")
+        target_dir = os.path.join(
+            self.trash_dir(), "%s_%s" % (stamp, naming.make_identifier(label))
+        )
+        os.makedirs(target_dir, exist_ok=True)
+        target = os.path.join(target_dir, os.path.basename(path))
+        shutil.move(path, target)
+        return target
+
+    def empty_trash(self, older_than_days=0):
+        """Purge trash entries older than N days (0 = everything)."""
+        trash = self.trash_dir()
+        if not os.path.isdir(trash):
+            return []
+        removed = []
+        cutoff = time.time() - older_than_days * 86400
+        for entry in sorted(os.listdir(trash)):
+            path = os.path.join(trash, entry)
+            if os.path.getmtime(path) <= cutoff:
+                shutil.rmtree(path, ignore_errors=True)
+                removed.append(entry)
+        return removed
 
     def set_scene_notes(self, kind, entity, task, version, notes):
         task_record = self._task_record(kind, entity, task)
@@ -166,17 +361,19 @@ class Project:
 
     def delete_scene(self, kind, entity, task, version):
         task_record = self._task_record(kind, entity, task)
-        row = self.db.delete_scene(task_record["id"], version)
-        self._remove_path(row.get("file", ""))
+        row = self._abs_row(self.db.delete_scene(task_record["id"], version))
+        self._trash(row.get("file", ""), "%s_%s_scene_v%03d" % (entity, task, version))
         return row
 
     def delete_publish(self, kind, entity, task, format_name, version):
         task_record = self._task_record(kind, entity, task)
-        row = self.db.delete_publish(task_record["id"], format_name, version)
+        row = self._abs_row(self.db.delete_publish(task_record["id"], format_name, version))
         path = row.get("path", "")
         # usd rows point at the entry layer; file rows at the version dir.
         version_dir = os.path.dirname(path) if os.path.isfile(path) else path
-        self._remove_path(version_dir)
+        self._trash(
+            version_dir, "%s_%s_%s_v%03d" % (entity, task, format_name, version)
+        )
         if format_name == "usd":
             self._rebuild_usd_root(task_record["id"], kind, entity, task, row["name"])
         return row
@@ -190,15 +387,17 @@ class Project:
         root_layer = os.path.join(publish_root, "%s.usda" % name)
         variants = self.db.known_variants(task_id, "usd", name)
         if not variants:
-            self._remove_path(root_layer)
+            self._trash(root_layer, "%s_root_layer" % name)
             return
         latest_version = max(variants.values())
         latest_row = self.db.get_publish(task_id, "usd", latest_version)
         thumbnail = None
         if latest_row and latest_row.get("thumbnail"):
-            if os.path.isfile(latest_row["thumbnail"]):
-                thumbnail = os.path.relpath(latest_row["thumbnail"], publish_root)
-                thumbnail = "./" + thumbnail.replace(os.sep, "/")
+            thumbnail_abs = self.absolute(latest_row["thumbnail"])
+            if os.path.isfile(thumbnail_abs):
+                thumbnail = "./" + os.path.relpath(
+                    thumbnail_abs, publish_root
+                ).replace(os.sep, "/")
         usdlayers.write_entry_layer(
             root_layer,
             SimpleNamespace(asset_name=name, meters_per_unit=1.0, up_axis="Y"),
@@ -215,31 +414,29 @@ class Project:
     def delete_task(self, kind, entity, task):
         task_record = self._task_record(kind, entity, task)
         self.db.delete_task(task_record["id"])
-        self._remove_path(self.task_dir(kind, entity, task))
+        self._trash(self.task_dir(kind, entity, task), "%s_%s" % (entity, task))
 
     def delete_entity(self, kind, name):
         record = self.db.get_entity(kind, name)
         if record is None:
             raise ValueError("unknown %s %r" % (kind, name))
         self.db.delete_entity(record["id"])
-        self._remove_path(self.entity_dir(kind, name))
+        self._trash(self.entity_dir(kind, name), name)
 
-    def browse(self):
-        """Full project tree for the app: entities with their tasks."""
-        tree = {"name": self.name, **self.meta(), "image_path": self.image_path()}
-        for kind in config.KINDS:
-            entries = []
-            for entity in self.entities(kind):
-                entries.append(
-                    {
-                        "name": entity["name"],
-                        "created_at": entity["created_at"],
-                        "tasks": self.db.list_tasks(entity["id"]),
-                    }
-                )
-            tree[config.kind_dir(kind)] = entries
-        tree["counts"] = self.db.counts()
-        return tree
+    # -- presence --------------------------------------------------------
+
+    def touch_presence(self, kind, entity, task, user, scene_version=None, host=""):
+        try:
+            task_record = self._task_record(kind, entity, task)
+        except ValueError:
+            return
+        self.db.set_presence(user, task_record["id"], scene_version, host)
+
+    def task_presence(self, kind, entity, task):
+        task_record = self._task_record(kind, entity, task)
+        return [
+            row for row in self.db.list_presence() if row["task_id"] == task_record["id"]
+        ]
 
 
 # -- hub-level operations ------------------------------------------------
@@ -259,11 +456,39 @@ def _read_registry(root):
         return {}
 
 
-def _register_project(root, name, project_root):
-    registry = _read_registry(root)
-    registry[name] = project_root
-    with open(_registry_path(root), "w", encoding="utf-8") as handle:
-        json.dump({"projects": registry}, handle, indent=2)
+def _write_registry_locked(root, mutate):
+    """Atomically update the registry under a lock file (shared server)."""
+    lock = _registry_path(root) + ".lock"
+    acquired = False
+    for _ in range(60):
+        try:
+            handle = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(handle)
+            acquired = True
+            break
+        except FileExistsError:
+            # Steal locks abandoned by crashed processes.
+            try:
+                if time.time() - os.path.getmtime(lock) > 30:
+                    os.remove(lock)
+                    continue
+            except OSError:
+                pass
+            time.sleep(0.1)
+    if not acquired:
+        raise RuntimeError("could not lock the project registry (%s)" % lock)
+    try:
+        registry = _read_registry(root)
+        mutate(registry)
+        temp = _registry_path(root) + ".tmp"
+        with open(temp, "w", encoding="utf-8") as handle:
+            json.dump({"projects": registry}, handle, indent=2)
+        os.replace(temp, _registry_path(root))
+    finally:
+        try:
+            os.remove(lock)
+        except OSError:
+            pass
 
 
 def _project_roots(root):
@@ -281,7 +506,7 @@ def _project_roots(root):
     return roots
 
 
-def create_project(name, image=None, hub_root=None, location=None):
+def create_project(name, image=None, hub_root=None, location=None, settings=None):
     """Create a project — in the hub by default, or at a chosen location
     (shared drive, synced repository folder, anywhere) which is then
     recorded in the hub registry."""
@@ -301,7 +526,8 @@ def create_project(name, image=None, hub_root=None, location=None):
     if os.path.exists(project_root):
         raise ValueError("project directory already exists: %s" % project_root)
     os.makedirs(project_root)
-    for sub in (config.ASSETS_DIR, config.SHOTS_DIR, config.PROJECT_REPORTS_DIR):
+    for sub in (config.ASSETS_DIR, config.SHOTS_DIR, config.PROJECT_REPORTS_DIR,
+                config.REFS_DIR):
         os.makedirs(os.path.join(project_root, sub), exist_ok=True)
 
     image_name = ""
@@ -317,11 +543,17 @@ def create_project(name, image=None, hub_root=None, location=None):
         image_name = "image.png"
         write_placeholder_png(os.path.join(project_root, image_name), size=128, cell=16)
 
+    project_settings = dict(DEFAULT_SETTINGS)
+    project_settings.update(settings or {})
     with open(os.path.join(project_root, config.PROJECT_FILE), "w", encoding="utf-8") as f:
-        json.dump({"name": name, "image": image_name, "created_at": utc_now()}, f, indent=2)
+        json.dump(
+            {"name": name, "image": image_name, "created_at": utc_now(),
+             "settings": project_settings},
+            f, indent=2,
+        )
 
     if location:
-        _register_project(root, name, project_root)
+        _write_registry_locked(root, lambda reg: reg.__setitem__(name, project_root))
 
     project = Project(project_root)
     project.db  # create the database file up front
@@ -363,12 +595,9 @@ def remove_project(name, hub_root=None, delete_files=False):
     project_root = roots.get(name)
     if project_root is None:
         raise ValueError("unknown project %r" % name)
-    registry = _read_registry(root)
-    external = name in registry
+    external = name in _read_registry(root)
     if external:
-        del registry[name]
-        with open(_registry_path(root), "w", encoding="utf-8") as handle:
-            json.dump({"projects": registry}, handle, indent=2)
+        _write_registry_locked(root, lambda reg: reg.pop(name, None))
     deleted = False
     if delete_files or not external:
         shutil.rmtree(project_root, ignore_errors=True)

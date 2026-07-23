@@ -42,6 +42,10 @@ ASSETS_DIR = "assets"
 SHOTS_DIR = "shots"
 SCENES_DIR = "scenes"
 PUBLISH_DIR = "publish"
+CACHES_DIR = "caches"
+RENDER_DIR = "render"
+REFS_DIR = "refs"
+TRASH_DIR = ".trash"
 
 SELECTION_FILE = "selection.json"
 REPORT_FILE = "report.json"
@@ -62,13 +66,26 @@ DEFAULT_TASKS = (
 )
 
 DEFAULT_FORMAT = "usd"
-FORMATS = ("usd", "bgeo", "vdb", "obj")
+FORMATS = ("usd", "bgeo", "vdb", "obj", "hda")
 FORMAT_EXTENSIONS = {
-    "usd": (".usd", ".usda", ".usdc"),
+    "usd": (".usd", ".usda", ".usdc", ".usdz"),
     "bgeo": (".bgeo", ".bgeo.sc", ".geo"),
     "vdb": (".vdb",),
     "obj": (".obj",),
+    "hda": (".hda", ".otl", ".hdanc", ".hdalc"),
+    "abc": (".abc",),
+    "fbx": (".fbx",),
+    "tex": (".png", ".jpg", ".jpeg", ".exr", ".hdr", ".tif", ".tiff", ".tx", ".rat"),
+    "render": (".exr", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".mp4"),
 }
+
+# Extension -> format used when ingesting external files.
+INGEST_FORMATS = {}
+for _format, _extensions in FORMAT_EXTENSIONS.items():
+    if _format == "render":
+        continue
+    for _ext in _extensions:
+        INGEST_FORMATS.setdefault(_ext, _format)
 
 SCENE_EXTENSION = ".hip"
 
@@ -99,8 +116,22 @@ def exchange_path(root):
     return os.path.join(root, EXCHANGE_DIR)
 
 
-def selection_path(root):
-    return os.path.join(exchange_path(root), SELECTION_FILE)
+def user_exchange_path(root, user=None):
+    """Per-user exchange directory, so artists never overwrite each other's
+    staged selections or capture files on a shared hub."""
+    if user is None:
+        from .user import get_user
+
+        user = get_user()
+    from .naming import make_identifier
+
+    path = os.path.join(exchange_path(root), make_identifier(user, fallback="user"))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def selection_path(root, user=None):
+    return os.path.join(user_exchange_path(root, user), SELECTION_FILE)
 
 
 def kind_dir(kind):

@@ -181,6 +181,15 @@ function openMenu(anchor, items) {
   }, 0);
 }
 
+// Periodic reload so windows follow other artists' work — paused while a
+// sheet or menu is open so it never yanks input away.
+function autoRefresh(reload, ms) {
+  setInterval(() => {
+    if (document.querySelector(".overlay, .menu")) return;
+    reload();
+  }, ms || 30000);
+}
+
 // A ⋯ button. `itemsFactory` is called on open so labels/actions stay fresh.
 function dotsButton(itemsFactory) {
   const button = el("button", "btn icon dots", "⋯");

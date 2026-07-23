@@ -36,6 +36,15 @@ contextBridge.exposeInMainWorld("fivehub", {
     ipcRenderer.invoke("hub:publishDelete", context, format, version),
   publishComment: (context, format, version, comment) =>
     ipcRenderer.invoke("hub:publishComment", context, format, version, comment),
+  entityUpdate: (project, kind, name, fields) =>
+    ipcRenderer.invoke("hub:entityUpdate", project, kind, name, fields),
+  ingest: (context, files, name, comment) =>
+    ipcRenderer.invoke("hub:ingest", context, files, name, comment),
+  refs: (project) => ipcRenderer.invoke("hub:refs", project),
+  refsAdd: (project, files) => ipcRenderer.invoke("hub:refsAdd", project, files),
+  refsDelete: (project, name) => ipcRenderer.invoke("hub:refsDelete", project, name),
+  jobs: (project, limit) => ipcRenderer.invoke("hub:jobs", project, limit),
+  jobCancel: (project, jobId) => ipcRenderer.invoke("hub:jobCancel", project, jobId),
 
   openProject: (name) => ipcRenderer.invoke("win:project", name),
   openTask: (context) => ipcRenderer.invoke("win:task", context),
@@ -45,5 +54,7 @@ contextBridge.exposeInMainWorld("fivehub", {
   copy: (text) => ipcRenderer.invoke("os:copy", text),
   pickImage: () => ipcRenderer.invoke("os:pickImage"),
   pickFolder: () => ipcRenderer.invoke("os:pickFolder"),
-  openScene: (file) => ipcRenderer.invoke("os:openScene", file),
+  pickFiles: (title) => ipcRenderer.invoke("os:pickFiles", title),
+  openScene: (file, projectRoot) =>
+    ipcRenderer.invoke("os:openScene", file, projectRoot),
 });

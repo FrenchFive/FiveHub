@@ -362,6 +362,19 @@ class PublishDialog(_BaseDialog):
         grid.addWidget(self.comment_edit, 3, 0, 1, 3)
         self.layout_.addLayout(grid)
 
+        animation_row = QtWidgets.QHBoxLayout()
+        self.animated_check = QtWidgets.QCheckBox("ANIMATED (BAKE FRAME RANGE)")
+        self.frame_start_edit = QtWidgets.QLineEdit()
+        self.frame_start_edit.setFixedWidth(70)
+        self.frame_end_edit = QtWidgets.QLineEdit()
+        self.frame_end_edit.setFixedWidth(70)
+        animation_row.addWidget(self.animated_check)
+        animation_row.addWidget(_label("RANGE", "hint"))
+        animation_row.addWidget(self.frame_start_edit)
+        animation_row.addWidget(self.frame_end_edit)
+        animation_row.addStretch(1)
+        self.layout_.addLayout(animation_row)
+
         self.hint_label = _label(
             "USD PUBLISHES RUN FULL VALIDATION — ERRORS BLOCK THE PUBLISH", "hint"
         )
@@ -369,13 +382,26 @@ class PublishDialog(_BaseDialog):
 
         self.add_buttons("VALIDATE + PUBLISH")
 
+    def set_frame_range(self, start, end):
+        self.frame_start_edit.setText(str(int(start)))
+        self.frame_end_edit.setText(str(int(end)))
+
     def values(self):
+        def _int(edit, fallback):
+            try:
+                return int(float(edit.text()))
+            except (TypeError, ValueError):
+                return fallback
+
         return {
             "context": dict(self.context),
             "name": self.name_edit.text().strip(),
             "format": self.format_combo.currentData(),
             "variant": self.variant_edit.text().strip() or "default",
             "comment": self.comment_edit.text().strip(),
+            "animated": self.animated_check.isChecked(),
+            "frame_start": _int(self.frame_start_edit, 1001),
+            "frame_end": _int(self.frame_end_edit, 1100),
         }
 
 
@@ -428,6 +454,66 @@ class LoadAssetDialog(_BaseDialog):
     def selected_publish(self):
         item = self.publish_list.currentItem()
         return item.data(QtCore.Qt.UserRole) if item else None
+
+
+class RenderDialog(_BaseDialog):
+    """Queue a render of the current saved scene: pick ROP + frame range."""
+
+    def __init__(self, context, rops, frame_start, frame_end, scene_version,
+                 parent=None):
+        super(RenderDialog, self).__init__("SUBMIT RENDER", parent)
+        self.resize(600, 300)
+
+        banner = _label(
+            "%s   ·   %s %s   ·   %s   ·   SCENE V%03d"
+            % (context["project"], context["kind"].upper(), context["entity"],
+               context["task"], scene_version),
+            "context",
+        )
+        self.layout_.addWidget(banner)
+
+        grid = QtWidgets.QGridLayout()
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(6)
+
+        self.rop_combo = QtWidgets.QComboBox()
+        for rop in rops:
+            self.rop_combo.addItem(rop)
+        self.start_edit = QtWidgets.QLineEdit(str(int(frame_start)))
+        self.end_edit = QtWidgets.QLineEdit(str(int(frame_end)))
+        self.step_edit = QtWidgets.QLineEdit("1")
+
+        for column, (title, widget, stretch) in enumerate(
+            (
+                ("ROP", self.rop_combo, 3),
+                ("START", self.start_edit, 1),
+                ("END", self.end_edit, 1),
+                ("STEP", self.step_edit, 1),
+            )
+        ):
+            grid.addWidget(_label(title, "hint"), 0, column)
+            grid.addWidget(widget, 1, column)
+            grid.setColumnStretch(column, stretch)
+        self.layout_.addLayout(grid)
+
+        self.layout_.addWidget(
+            _label("RUNS ON A FIVEHUB WORKER — FRAMES BECOME A RENDER PUBLISH", "hint")
+        )
+        self.add_buttons("QUEUE RENDER")
+
+    def values(self):
+        def _int(edit, fallback):
+            try:
+                return int(float(edit.text()))
+            except (TypeError, ValueError):
+                return fallback
+
+        return {
+            "rop": self.rop_combo.currentText(),
+            "frame_start": _int(self.start_edit, 1001),
+            "frame_end": _int(self.end_edit, 1100),
+            "step": max(1, _int(self.step_edit, 1)),
+        }
 
 
 class ReportDialog(_BaseDialog):

@@ -39,6 +39,14 @@ def _vec3_array(values):
     return "[%s]" % ", ".join(_vec3(v) for v in values)
 
 
+def _vec2(value):
+    return "(%s, %s)" % (_num(value[0]), _num(value[1]))
+
+
+def _vec2_array(values):
+    return "[%s]" % ", ".join(_vec2(v) for v in values)
+
+
 def _int_array(values):
     return "[%s]" % ", ".join(str(int(v)) for v in values)
 
@@ -52,13 +60,20 @@ def _posix(path):
     return path.replace(os.sep, "/")
 
 
-def _layer_header(default_prim, meters_per_unit=None, up_axis=None, custom=None):
+def _layer_header(default_prim, meters_per_unit=None, up_axis=None, custom=None,
+                  time_range=None, fps=None):
     lines = ["#usda 1.0", "("]
     lines.append('%sdefaultPrim = "%s"' % (INDENT, default_prim))
     if meters_per_unit is not None:
         lines.append("%smetersPerUnit = %s" % (INDENT, _num(meters_per_unit)))
     if up_axis is not None:
         lines.append('%supAxis = "%s"' % (INDENT, up_axis))
+    if time_range is not None:
+        lines.append("%sstartTimeCode = %s" % (INDENT, _num(time_range[0])))
+        lines.append("%sendTimeCode = %s" % (INDENT, _num(time_range[1])))
+        if fps:
+            lines.append("%stimeCodesPerSecond = %s" % (INDENT, _num(fps)))
+            lines.append("%sframesPerSecond = %s" % (INDENT, _num(fps)))
     lines.append("%scustomLayerData = {" % INDENT)
     lines.append('%sstring generator = %s' % (INDENT * 2, _string(GENERATOR)))
     for key, value in (custom or {}).items():
@@ -67,6 +82,17 @@ def _layer_header(default_prim, meters_per_unit=None, up_axis=None, custom=None)
     lines.append(")")
     lines.append("")
     return lines
+
+
+def _time_range(request):
+    """(start, end) when any mesh carries animation samples, else None."""
+    frames = set()
+    for mesh in getattr(request, "meshes", []) or []:
+        if mesh.point_samples:
+            frames.update(mesh.point_samples)
+    if not frames:
+        return None
+    return (min(frames), max(frames))
 
 
 def _write(path, lines):
@@ -81,7 +107,10 @@ def _write(path, lines):
 
 def write_geo_layer(path, request):
     asset = request.asset_name
-    lines = _layer_header(asset, request.meters_per_unit, request.up_axis)
+    lines = _layer_header(
+        asset, request.meters_per_unit, request.up_axis,
+        time_range=_time_range(request), fps=getattr(request, "fps", None),
+    )
     lines.append('def Xform "%s" (' % asset)
     lines.append('%skind = "component"' % INDENT)
     lines.append(")")
@@ -111,7 +140,27 @@ def _mesh_block(mesh, depth):
             '%snormal3f[] normals = %s (\n%sinterpolation = "faceVarying"\n%s)'
             % (inner, _vec3_array(mesh.normals), inner + INDENT, inner)
         )
-    lines.append("%spoint3f[] points = %s" % (inner, _vec3_array(mesh.points)))
+    if mesh.point_samples:
+        # Animated geometry: default = first sample, plus timeSamples.
+        frames = sorted(mesh.point_samples)
+        lines.append(
+            "%spoint3f[] points = %s"
+            % (inner, _vec3_array(mesh.point_samples[frames[0]]))
+        )
+        lines.append("%spoint3f[] points.timeSamples = {" % inner)
+        for frame in frames:
+            lines.append(
+                "%s%s: %s,"
+                % (inner + INDENT, _num(frame), _vec3_array(mesh.point_samples[frame]))
+            )
+        lines.append("%s}" % inner)
+    else:
+        lines.append("%spoint3f[] points = %s" % (inner, _vec3_array(mesh.points)))
+    if mesh.uvs:
+        lines.append(
+            '%stexCoord2f[] primvars:st = %s (\n%sinterpolation = "faceVarying"\n%s)'
+            % (inner, _vec2_array(mesh.uvs), inner + INDENT, inner)
+        )
     if mesh.display_color:
         lines.append(
             '%scolor3f[] primvars:displayColor = [%s]' % (inner, _vec3(mesh.display_color))
@@ -160,11 +209,26 @@ def write_mtl_layer(path, request):
     return _write(path, lines)
 
 
+# channel -> (UsdPreviewSurface input, declaration, UsdUVTexture output)
+_TEXTURE_CHANNELS = {
+    "diffuse": ("diffuseColor", "color3f", "rgb"),
+    "roughness": ("roughness", "float", "r"),
+    "metallic": ("metallic", "float", "r"),
+    "normal": ("normal", "normal3f", "rgb"),
+}
+
+
 def _material_block(asset, material, depth):
     pad = INDENT * depth
     inner = INDENT * (depth + 1)
     shader = INDENT * (depth + 2)
     mtl_path = "/%s/mtl/%s" % (asset, material.name)
+    textures = {
+        channel: file_path
+        for channel, file_path in (getattr(material, "textures", None) or {}).items()
+        if channel in _TEXTURE_CHANNELS and file_path
+    }
+
     lines = []
     lines.append('%sdef Material "%s"' % (pad, material.name))
     lines.append("%s{" % pad)
@@ -175,11 +239,69 @@ def _material_block(asset, material, depth):
     lines.append('%sdef Shader "Surface"' % inner)
     lines.append("%s{" % inner)
     lines.append('%suniform token info:id = "UsdPreviewSurface"' % shader)
-    lines.append("%scolor3f inputs:diffuseColor = %s" % (shader, _vec3(material.base_color)))
-    lines.append("%sfloat inputs:metallic = %s" % (shader, _num(material.metallic)))
-    lines.append("%sfloat inputs:roughness = %s" % (shader, _num(material.roughness)))
+    if "diffuse" in textures:
+        lines.append(
+            "%scolor3f inputs:diffuseColor.connect = <%s/diffuseTexture.outputs:rgb>"
+            % (shader, mtl_path)
+        )
+    else:
+        lines.append(
+            "%scolor3f inputs:diffuseColor = %s" % (shader, _vec3(material.base_color))
+        )
+    if "metallic" in textures:
+        lines.append(
+            "%sfloat inputs:metallic.connect = <%s/metallicTexture.outputs:r>"
+            % (shader, mtl_path)
+        )
+    else:
+        lines.append("%sfloat inputs:metallic = %s" % (shader, _num(material.metallic)))
+    if "roughness" in textures:
+        lines.append(
+            "%sfloat inputs:roughness.connect = <%s/roughnessTexture.outputs:r>"
+            % (shader, mtl_path)
+        )
+    else:
+        lines.append("%sfloat inputs:roughness = %s" % (shader, _num(material.roughness)))
+    if "normal" in textures:
+        lines.append(
+            "%snormal3f inputs:normal.connect = <%s/normalTexture.outputs:rgb>"
+            % (shader, mtl_path)
+        )
     lines.append("%stoken outputs:surface" % shader)
     lines.append("%s}" % inner)
+
+    if textures:
+        lines.append("")
+        lines.append('%sdef Shader "stReader"' % inner)
+        lines.append("%s{" % inner)
+        lines.append('%suniform token info:id = "UsdPrimvarReader_float2"' % shader)
+        lines.append('%sstring inputs:varname = "st"' % shader)
+        lines.append("%sfloat2 outputs:result" % shader)
+        lines.append("%s}" % inner)
+        for channel, file_path in sorted(textures.items()):
+            _input, _decl, output = _TEXTURE_CHANNELS[channel]
+            lines.append("")
+            lines.append('%sdef Shader "%sTexture"' % (inner, channel))
+            lines.append("%s{" % inner)
+            lines.append('%suniform token info:id = "UsdUVTexture"' % shader)
+            lines.append("%sasset inputs:file = @%s@" % (shader, _posix(file_path)))
+            lines.append(
+                "%sfloat2 inputs:st.connect = <%s/stReader.outputs:result>"
+                % (shader, mtl_path)
+            )
+            lines.append('%stoken inputs:wrapS = "repeat"' % shader)
+            lines.append('%stoken inputs:wrapT = "repeat"' % shader)
+            if channel == "normal":
+                lines.append('%stoken inputs:sourceColorSpace = "raw"' % shader)
+                lines.append("%sfloat4 inputs:scale = (2, 2, 2, 1)" % shader)
+                lines.append("%sfloat4 inputs:bias = (-1, -1, -1, 0)" % shader)
+            elif channel != "diffuse":
+                lines.append('%stoken inputs:sourceColorSpace = "raw"' % shader)
+            if output == "rgb":
+                lines.append("%sfloat3 outputs:rgb" % shader)
+            else:
+                lines.append("%sfloat outputs:r" % shader)
+            lines.append("%s}" % inner)
     lines.append("%s}" % pad)
     return lines
 
@@ -233,11 +355,36 @@ def _binding_blocks(asset, request):
 # -- payload layer -------------------------------------------------------
 
 
+def write_assembly_layer(path, name, references, custom=None):
+    """A shot assembly: one Xform referencing published assets.
+
+    ``references`` is a list of (child_name, relative_layer_path) — each
+    becomes ``def "child" (references = @layer@)`` under the root prim, so
+    the assembly stays live: it follows whatever those layers resolve to.
+    """
+    lines = _layer_header(name, 1.0, "Y", custom)
+    lines.append('def Xform "%s" (' % name)
+    lines.append('%skind = "assembly"' % INDENT)
+    lines.append(")")
+    lines.append("{")
+    for child_name, layer in references:
+        lines.append('%sdef "%s" (' % (INDENT, child_name))
+        lines.append("%sprepend references = @%s@" % (INDENT * 2, _posix(layer)))
+        lines.append("%s)" % INDENT)
+        lines.append("%s{" % INDENT)
+        lines.append("%s}" % INDENT)
+    lines.append("}")
+    return _write(path, lines)
+
+
 def write_payload_layer(path, request, geo_layer, mtl_layer):
     """Compose mtl over geo. The mtl reference is listed first so its overs
     win over the geometry layer's opinions."""
     asset = request.asset_name
-    lines = _layer_header(asset, request.meters_per_unit, request.up_axis)
+    lines = _layer_header(
+        asset, request.meters_per_unit, request.up_axis,
+        time_range=_time_range(request), fps=getattr(request, "fps", None),
+    )
     lines.append('def Xform "%s" (' % asset)
     lines.append("%sprepend references = [" % INDENT)
     lines.append("%s@%s@</%s>," % (INDENT * 2, _posix(mtl_layer), asset))

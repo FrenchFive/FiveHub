@@ -113,7 +113,7 @@ function scenesTable(scenes) {
     openBtn.addEventListener("click", async () => {
       try {
         toast("OPENING " + padVersion(scene.version) + " IN HOUDINI…");
-        await window.fivehub.openScene(scene.file);
+        await window.fivehub.openScene(scene.file, projectRoot);
       } catch (error) {
         toast(cliErrorText(error).toUpperCase());
       }
@@ -159,7 +159,7 @@ function publishesTable(publishes) {
   const head = el("thead");
   const headRow = el("tr");
   for (const column of [
-    "FORMAT", "VERSION", "VARIANT", "STATUS", "BY", "PUBLISHED", "COMMENT", "",
+    "", "FORMAT", "VERSION", "VARIANT", "STATUS", "BY", "PUBLISHED", "COMMENT", "",
   ]) {
     headRow.appendChild(el("th", null, column));
   }
@@ -169,6 +169,14 @@ function publishesTable(publishes) {
   const body = el("tbody");
   for (const publish of publishes) {
     const row = el("tr");
+    const thumbCell = el("td", "thumb-cell");
+    if (publish.thumbnail) {
+      const img = el("img", "table-thumb");
+      img.src = window.fivehub.fileUrl(publish.thumbnail);
+      img.alt = "";
+      thumbCell.appendChild(img);
+    }
+    row.appendChild(thumbCell);
     row.appendChild(el("td", null, (publish.format || "").toUpperCase()));
     row.appendChild(el("td", null, publish.version ? padVersion(publish.version) : "—"));
     row.appendChild(el("td", null, publish.variant || "—"));
@@ -263,18 +271,131 @@ document.getElementById("task-menu").addEventListener("click", (event) => {
   ]);
 });
 
+async function ingestSheet() {
+  const files = await window.fivehub.pickFiles("Files to ingest into this task");
+  if (!files.length) return;
+  const values = await openSheet({
+    title: "Ingest " + files.length + " file(s)",
+    submitLabel: "VALIDATE + INGEST",
+    build(body) {
+      const listField = sheetField(body, "FILES");
+      for (const file of files.slice(0, 6)) {
+        listField.appendChild(el("span", "mono", file));
+      }
+      if (files.length > 6) {
+        listField.appendChild(el("span", "mono", "… and " + (files.length - 6) + " more"));
+      }
+      const nameField = sheetField(body, "PUBLISH NAME");
+      const nameInput = el("input");
+      nameInput.type = "text";
+      nameInput.value = context.entity;
+      nameField.appendChild(nameInput);
+      const commentField = sheetField(body, "COMMENT");
+      const commentInput = el("input");
+      commentInput.type = "text";
+      commentInput.placeholder = "e.g. vendor delivery 07-23";
+      commentField.appendChild(commentInput);
+      return () => ({
+        name: nameInput.value.trim() || context.entity,
+        comment: commentInput.value.trim(),
+      });
+    },
+  });
+  if (!values) return;
+  try {
+    const { result } = await window.fivehub.ingest(
+      context, files, values.name, values.comment,
+    );
+    toast(
+      result.passed
+        ? "INGESTED AS " + result.format.toUpperCase() + " " + result.version_label
+        : "INGEST BLOCKED — SEE REPORT",
+    );
+    if (!result.passed && result.report_path) {
+      window.fivehub.openReport(result.report_path);
+    }
+    load();
+  } catch (error) {
+    toast(cliErrorText(error).toUpperCase());
+  }
+}
+
+document.getElementById("ingest").addEventListener("click", ingestSheet);
+
+function depsList(uses, usedBy) {
+  const box = el("div", "activity-list");
+  for (const dep of uses) {
+    const row = el("div", "activity-row");
+    row.appendChild(el("span", "activity-type", "USES"));
+    const pin = dep.src_version
+      ? "pinned v" + String(dep.src_version).padStart(3, "0")
+      : "follows latest";
+    row.appendChild(
+      el(
+        "span",
+        "what",
+        `${dep.src_entity} / ${dep.src_task} · ${dep.src_name} (${dep.src_format}) · ${pin}`,
+      ),
+    );
+    if (dep.outdated) {
+      row.appendChild(
+        el(
+          "span",
+          "status-pass",
+          "V" + String(dep.latest_version).padStart(3, "0") + " AVAILABLE",
+        ),
+      );
+    }
+    row.appendChild(el("span", "when", shortDate(dep.created_at)));
+    box.appendChild(row);
+  }
+  for (const dep of usedBy) {
+    const row = el("div", "activity-row");
+    row.appendChild(el("span", "activity-type", "USED BY"));
+    row.appendChild(
+      el("span", "what", `${dep.consumer_entity} / ${dep.consumer_task}`),
+    );
+    row.appendChild(el("span", "who", dep.user || "—"));
+    row.appendChild(el("span", "when", shortDate(dep.created_at)));
+    box.appendChild(row);
+  }
+  return box;
+}
+
+let projectRoot = "";
+
 async function load() {
   const scenesBox = document.getElementById("scenes");
   const publishesBox = document.getElementById("publishes");
   try {
     const info = await window.fivehub.taskInfo(context);
+    projectRoot = info.root || "";
+
+    const others = (info.presence || []).filter(Boolean);
+    document.getElementById("presence").textContent = others.length
+      ? "IN USE — " + others.map((p) => p.user).join(", ")
+      : "";
+
     clear(scenesBox);
     scenesBox.appendChild(scenesTable(info.scenes));
     clear(publishesBox);
     publishesBox.appendChild(publishesTable(info.publishes));
+
+    const depsSection = document.getElementById("deps-section");
+    const depsBox = document.getElementById("deps");
+    const uses = info.uses || [];
+    const usedBy = info.used_by || [];
+    if (uses.length || usedBy.length) {
+      depsSection.classList.remove("hidden");
+      clear(depsBox);
+      depsBox.appendChild(depsList(uses, usedBy));
+    } else {
+      depsSection.classList.add("hidden");
+    }
   } catch (error) {
     showError(scenesBox, error);
   }
 }
 
 load();
+autoRefresh(load);
