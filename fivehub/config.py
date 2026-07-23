@@ -74,6 +74,14 @@ DEFAULT_TASKS = (
 # before lookdev has happened.
 LOOKDEV_TASKS = ("lookdev", "shading", "surfacing", "texturing", "look")
 
+# Production order (early -> late) for picking an entity's image from its
+# tasks' latest publish thumbnails: later stages look closer to the final
+# frame, so a lookdev image beats a modeling one. Unknown tasks rank last.
+TASK_IMAGE_ORDER = (
+    "modeling", "rig", "environment", "layout",
+    "animation", "fx", "lookdev", "lighting",
+)
+
 DEFAULT_FORMAT = "usd"
 FORMATS = ("usd", "bgeo", "vdb", "obj", "hda")
 FORMAT_EXTENSIONS = {
