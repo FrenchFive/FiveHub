@@ -1,8 +1,8 @@
 {
   "name": "fivehub-app",
   "productName": "FiveHub",
-  "version": "3.0.0",
-  "description": "FiveHub — project hub for the Houdini pipeline",
+  "version": "3.1.0",
+  "description": "FiveHub \u2014 project hub for the Houdini pipeline",
   "main": "main.js",
   "license": "MIT",
   "scripts": {
@@ -16,13 +16,24 @@
   "build": {
     "appId": "com.fivehub.app",
     "productName": "FiveHub",
-    "files": ["main.js", "preload.js", "renderer/**"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**"
+    ],
     "extraResources": [],
     "directories": {
       "output": "dist"
     },
-    "mac": { "target": "dmg", "category": "public.app-category.graphics-design" },
-    "win": { "target": "nsis" },
-    "linux": { "target": "AppImage" }
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.graphics-design"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   }
 }
