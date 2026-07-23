@@ -60,7 +60,9 @@ function publishesTable(publishes) {
   const table = el("table");
   const head = el("thead");
   const headRow = el("tr");
-  for (const column of ["FORMAT", "VERSION", "VARIANT", "STATUS", "COMMENT", ""]) {
+  for (const column of [
+    "FORMAT", "VERSION", "VARIANT", "STATUS", "BY", "PUBLISHED", "COMMENT", "",
+  ]) {
     headRow.appendChild(el("th", null, column));
   }
   head.appendChild(headRow);
@@ -82,6 +84,8 @@ function publishesTable(publishes) {
       ),
     );
     row.appendChild(statusCell);
+    row.appendChild(el("td", null, publish.user || "—"));
+    row.appendChild(el("td", null, shortDate(publish.created_at)));
     row.appendChild(el("td", null, publish.comment || "—"));
 
     const actions = el("td", "row-actions");

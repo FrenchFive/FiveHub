@@ -229,6 +229,12 @@ class UserTests(unittest.TestCase):
         self.assertEqual(
             project.publishes("asset", "Crate", "modeling")[0]["user"], "Signer"
         )
+        # The signature travels with the report itself (who + when).
+        self.assertEqual(result.report.user, "Signer")
+        self.assertIn("by Signer", result.report.to_text())
+        self.assertEqual(
+            ValidationReport.load(result.report_path).user, "Signer"
+        )
 
         # Scene saves are signed the same way when no user is given.
         path, version = project.next_scene_path("asset", "Crate", "modeling")
@@ -577,6 +583,7 @@ class CliTests(unittest.TestCase):
         report_path = info["publishes"][0]["report_path"]
         report = self.cli("report", "--path", report_path)
         self.assertTrue(report["report"]["passed"])
+        self.assertEqual(report["report"]["user"], "demo")  # signed publish
 
         log = self.cli("log", "DemoProject")["log"]
         self.assertEqual(len(log), 4)

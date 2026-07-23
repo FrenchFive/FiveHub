@@ -52,7 +52,7 @@ After install, a **FIVE HUB** menu sits in Houdini's main menu bar:
 | **Save Scene As...** | FiveHub window: pick project → asset/shot → task (new entities/tasks can be typed in place), add notes → saves `<Entity>_<task>_v###.hip` and records it |
 | **Increment Save** | Detects the current scene's context, asks for notes, saves the next version |
 | **Load Scene...** | Browse projects → entities → tasks → versions with notes, opens the picked scene |
-| **Publish Selection...** | FiveHub window: context (prefilled from the scene), publish name, **format (USD default / VDB / BGEO / OBJ)**, variant, comment → runs validation → pass/fail report window. Errors block the publish |
+| **Publish Selection...** | Only available from a scene saved in the pipeline — the **context (project / entity / task) is locked from the saved scene**, never chosen at publish time; an unsaved scene gets pointed to *Save Scene As...* instead. The window takes publish name, **format (USD default / VDB / BGEO / OBJ)**, variant, comment → runs validation → pass/fail report window. Errors block the publish; every publish is signed (who + when) |
 | **Load Published Asset...** | Browse publishes of any task and import: USD → Solaris `/stage` reference (SOP fallback), file formats → File SOPs |
 | **Import Staged From Hub** | Imports whatever the hub app staged via SEND TO HOUDINI |
 | **Open Hub App** | Launches the standalone Electron app |
