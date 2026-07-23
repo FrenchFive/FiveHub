@@ -56,6 +56,9 @@ QComboBox QAbstractItemView { background: #ffffff; color: #0b0b0c;
     border: 1px solid rgba(0, 0, 0, 40); border-radius: 10px;
     selection-background-color: #0b0b0c; selection-color: #ffffff;
     outline: none; }
+QComboBox QLineEdit { background: #ffffff; color: #0b0b0c; border: none;
+    padding: 0; selection-background-color: #0b0b0c;
+    selection-color: #ffffff; }
 QListWidget::item { padding: 9px; border-radius: 8px; }
 QListWidget::item:selected { background: #0b0b0c; color: #ffffff; }
 QPushButton { background: #ffffff; color: #0b0b0c;
@@ -108,6 +111,13 @@ class ContextWidget(QtWidgets.QWidget):
         if editable:
             self.entity_combo.setEditable(True)
             self.task_combo.setEditable(True)
+            # Houdini's style paints the embedded line edit with its dark
+            # palette regardless of ancestor stylesheets — style the widget
+            # itself, which always wins.
+            for combo in (self.entity_combo, self.task_combo):
+                combo.lineEdit().setStyleSheet(
+                    "background: #ffffff; color: #0b0b0c; border: none;"
+                )
 
         for column, (title, widget) in enumerate(
             (
@@ -210,6 +220,11 @@ class _BaseDialog(QtWidgets.QDialog):
         self.setObjectName("fivehubDialog")
         self.setStyleSheet(STYLE)
         self.setWindowTitle("FIVE HUB")
+        # Qt 5 dialogs grow a "?" (What's This) title-bar button on Windows
+        # that does nothing here — drop it.
+        self.setWindowFlags(
+            self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint
+        )
         self.layout_ = QtWidgets.QVBoxLayout(self)
         self.layout_.setContentsMargins(26, 26, 26, 26)
         self.layout_.setSpacing(16)
