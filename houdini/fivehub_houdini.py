@@ -202,13 +202,29 @@ def increment_save():
     return _save_into(context, values[0].strip())
 
 
+def scene_extension():
+    """The extension this Houdini's license actually writes — claiming any
+    other name would divorce the database from the file on disk (an
+    Apprentice save of x.hip silently lands in x.hipnc)."""
+    try:
+        category = hou.licenseCategory()
+        if category == hou.licenseCategoryType.Commercial:
+            return ".hip"
+        if category == hou.licenseCategoryType.Indie:
+            return ".hiplc"
+        return ".hipnc"  # Apprentice / ApprenticeHD / Education
+    except AttributeError:
+        return config.SCENE_EXTENSION
+
+
 def _save_into(context, notes):
     """Claim the version in the database first (multi-user safe), then save
     the hip at the claimed path, then complete — never overwrite a peer."""
     try:
         project = _ensure_context(context)
         path, version = project.claim_scene(
-            context["kind"], context["entity"], context["task"], get_user()
+            context["kind"], context["entity"], context["task"], get_user(),
+            extension=scene_extension(),
         )
     except (ValueError, RuntimeError) as error:
         _error(str(error))

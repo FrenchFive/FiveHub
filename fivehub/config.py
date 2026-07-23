@@ -97,6 +97,9 @@ for _format, _extensions in FORMAT_EXTENSIONS.items():
         INGEST_FORMATS.setdefault(_ext, _format)
 
 SCENE_EXTENSION = ".hip"
+# What a Houdini license actually writes: commercial .hip, Indie .hiplc,
+# Apprentice/Education .hipnc — all three are pipeline scenes.
+SCENE_EXTENSIONS = (".hip", ".hiplc", ".hipnc")
 
 
 def repo_root():
@@ -153,5 +156,7 @@ def version_label(version):
     return "v%03d" % int(version)
 
 
-def scene_file_name(entity, task, version):
-    return "%s_%s_%s%s" % (entity, task, version_label(version), SCENE_EXTENSION)
+def scene_file_name(entity, task, version, extension=None):
+    return "%s_%s_%s%s" % (
+        entity, task, version_label(version), extension or SCENE_EXTENSION,
+    )

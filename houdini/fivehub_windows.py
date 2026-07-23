@@ -312,9 +312,13 @@ class SaveSceneDialog(_BaseDialog):
             )
         except ValueError:
             pass  # entity or task does not exist yet -> first version
+        from fivehub_houdini import scene_extension
+
         self.target_label.setText(
             "WILL SAVE  %s"
-            % config.scene_file_name(context["entity"], context["task"], version)
+            % config.scene_file_name(
+                context["entity"], context["task"], version, scene_extension()
+            )
         )
 
     def values(self):

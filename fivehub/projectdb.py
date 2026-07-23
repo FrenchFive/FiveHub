@@ -380,6 +380,16 @@ class ProjectDB:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    def claimed_scene_file(self, task_id, version):
+        """File recorded at claim time, any status — the claim knows the
+        real extension (.hip / .hiplc / .hipnc)."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT file FROM scene WHERE task_id = ? AND version = ?",
+                (task_id, int(version)),
+            ).fetchone()
+            return row["file"] if row else ""
+
     def get_scene(self, task_id, version):
         with self._connect() as conn:
             row = conn.execute(

@@ -216,10 +216,10 @@ class Project:
             self.task_dir(kind, entity, task), config.PUBLISH_DIR, format_name
         )
 
-    def scene_path(self, kind, entity, task, version):
+    def scene_path(self, kind, entity, task, version, extension=None):
         return os.path.join(
             self.scenes_dir(kind, entity, task),
-            config.scene_file_name(entity, task, version),
+            config.scene_file_name(entity, task, version, extension),
         )
 
     # -- entities & tasks ------------------------------------------------
@@ -295,24 +295,33 @@ class Project:
         """Peek only — the real number is fixed by claim_scene."""
         return self.db.next_scene_version(self._task_record(kind, entity, task)["id"])
 
-    def claim_scene(self, kind, entity, task, user=""):
+    def claim_scene(self, kind, entity, task, user="", extension=None):
         """Reserve the next scene version; returns (absolute path, version).
 
         The claim guarantees no other artist gets the same version — write
         the file at the returned path, then call complete_scene (or
-        release_scene if the save failed)."""
+        release_scene if the save failed). ``extension`` follows the DCC's
+        license (.hip / .hiplc / .hipnc) so the claimed path is the file
+        Houdini will actually write."""
         task_record = self._task_record(kind, entity, task)
         version = self.db.claim_scene_version(
             task_record["id"],
-            lambda v: self.rel(self.scene_path(kind, entity, task, v)),
+            lambda v: self.rel(self.scene_path(kind, entity, task, v, extension)),
             user=user,
         )
-        path = self.scene_path(kind, entity, task, version)
+        path = self.scene_path(kind, entity, task, version, extension)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         return path, version
 
     def complete_scene(self, kind, entity, task, version, notes="", user=""):
-        path = self.scene_path(kind, entity, task, version)
+        task_id = self._task_record(kind, entity, task)["id"]
+        # The claim recorded the real file (extension included) — check that.
+        claimed = self.db.claimed_scene_file(task_id, version)
+        path = (
+            self.absolute(claimed)
+            if claimed
+            else self.scene_path(kind, entity, task, version)
+        )
         if not os.path.isfile(path):
             raise ValueError("scene file was not written: %s" % path)
         if not user:
