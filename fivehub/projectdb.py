@@ -315,7 +315,11 @@ class ProjectDB:
                      AND s.status = 'complete' AND s.deleted_at = '') AS scene_count,
                    (SELECT COUNT(*) FROM publish p WHERE p.task_id = t.id
                      AND p.version IS NOT NULL AND p.status = 'complete'
-                     AND p.deleted_at = '') AS publish_count
+                     AND p.deleted_at = '') AS publish_count,
+                   (SELECT p.thumbnail FROM publish p WHERE p.task_id = t.id
+                     AND p.version IS NOT NULL AND p.status = 'complete'
+                     AND p.deleted_at = '' AND p.thumbnail != ''
+                     ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1) AS image
             FROM task t WHERE t.entity_id = ? AND t.deleted_at = '' ORDER BY t.name
         """
         with self._connect() as conn:

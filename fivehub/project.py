@@ -451,7 +451,10 @@ class Project:
                 for task in tasks:
                     active = presence.get(task["id"])
                     task["active_user"] = active["user"] if active else ""
-                entries.append({**entity, "tasks": tasks})
+                    # Latest publish thumbnail = the task's image.
+                    task["image"] = self.absolute(task.get("image") or "")
+                entries.append({**entity, "tasks": tasks,
+                                "image": _entity_image(tasks)})
             tree[config.kind_dir(kind)] = entries
         tree["counts"] = self.db.counts()
         return tree
@@ -775,6 +778,23 @@ def remove_project(name, hub_root=None, delete_files=False):
         deleted = True
     return {"removed": name, "external": external, "deleted_files": deleted,
             "path": project_root}
+
+
+def _entity_image(tasks):
+    """The task image closest to the end of production wins (see
+    config.TASK_IMAGE_ORDER); tasks outside the order are last-resort."""
+    rank = {name: index for index, name in enumerate(config.TASK_IMAGE_ORDER)}
+    best = ""
+    best_rank = -2
+    for task in tasks:
+        image = task.get("image") or ""
+        if not image:
+            continue
+        current = rank.get(task.get("name", ""), -1)
+        if current > best_rank:
+            best_rank = current
+            best = image
+    return best
 
 
 def parse_scene_path(path, hub_root=None):

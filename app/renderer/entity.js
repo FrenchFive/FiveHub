@@ -18,6 +18,12 @@ function taskContext(taskName) {
 function taskRow(task) {
   const block = el("div", "entity-block");
   const head = el("div", "entity-head");
+  if (task.image) {
+    const img = el("img", "entity-thumb");
+    img.src = window.fivehub.fileUrl(task.image);
+    img.alt = "";
+    head.appendChild(img);
+  }
   head.appendChild(el("div", "name", task.name));
   head.appendChild(
     el(
@@ -75,6 +81,13 @@ async function load() {
     entityData = entity;
 
     document.getElementById("entity-title").textContent = entity.name;
+    const heroImage = document.getElementById("entity-image");
+    if (entity.image) {
+      heroImage.src = window.fivehub.fileUrl(entity.image);
+      heroImage.classList.remove("hidden");
+    } else {
+      heroImage.classList.add("hidden");
+    }
     const meta = [kind.toUpperCase()];
     if (entity.sequence) meta.push(entity.sequence);
     if (entity.frame_start) meta.push(`${entity.frame_start}–${entity.frame_end}`);
