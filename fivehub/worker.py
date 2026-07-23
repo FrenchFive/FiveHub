@@ -23,6 +23,15 @@ HANDLERS = {
 }
 
 
+def all_handlers():
+    """Built-in handlers plus drop-in tool handlers (fivehub/tools/)."""
+    from . import tools
+
+    merged = dict(HANDLERS)
+    merged.update(tools.load_tools()["jobs"])
+    return merged
+
+
 def worker_id():
     return "%s@%s:%d" % (get_user() or "worker", socket.gethostname(), os.getpid())
 
@@ -35,13 +44,14 @@ def run_once(hub_root=None, project_name=None, log=print):
         names = [info["name"] for info in list_projects(hub_root)]
     executed = 0
     me = worker_id()
+    handlers = all_handlers()
     for name in names:
         project = get_project(name, hub_root)
         while True:
             job = project.db.claim_job(me)
             if job is None:
                 break
-            handler = HANDLERS.get(job["type"])
+            handler = handlers.get(job["type"])
             log("[%s] %s job %s in %s" % (me, job["type"], job["id"][:8], name))
             if handler is None:
                 project.db.finish_job(job["id"], "failed",

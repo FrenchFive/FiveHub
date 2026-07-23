@@ -150,6 +150,20 @@ trash <project> [--empty --days N]     backup     demo
 
 Every command prints JSON; `--hub` overrides the root.
 
+## EXTENDING — YOUR HDAS & TOOLS :
+
+FiveHub is the base; the pipeline grows by dropping things in, never by editing core:
+
+- **Pipeline HDAs** → drop `.hda` files into `houdini/otls/`. They load in every session automatically (the folder is on Houdini's HDA scan path via the package). Commit them; teammates get them on next launch/pull. Build your custom FileCache here whenever it outgrows the Python version.
+- **Project HDAs** → publish them (format `hda`) into the show; FiveHub **auto-installs a project's latest HDA publishes** when you open one of its scenes — show tools follow the show.
+- **Python tools** → add a module in `fivehub/tools/`. Decorators plug it into every surface, no registration files:
+  - `@houdini_tool("Label")` → appears under **FIVE HUB ▸ Pipeline Tools...**
+  - `@cli_command("name", "help", configure)` → becomes a `fivehub.cli` subcommand (and is reachable from the app)
+  - `@validation_rule` → joins the USD publish gate
+  - `@job_handler("type")` → executed by the worker
+  A broken tool is reported and skipped — it never takes the pipeline down.
+- **The shipped example** is exactly the cache workflow: `fivehub/tools/cachepath.py` defines the cache nomenclature (`<task>/caches/<name>/v###/<Entity>_<task>_<name>_v###.$F4.bgeo.sc`), exposes it as `cache-path` on the CLI, and registers **Create Pipeline File Cache** — a filecache SOP dropped after your selection, pre-pointed at `$FH_CACHES` (which FiveHub binds to the scene's task on load/save).
+
 ## DEVELOPMENT :
 
 ```

@@ -516,6 +516,29 @@ class RenderDialog(_BaseDialog):
         }
 
 
+class ToolsDialog(_BaseDialog):
+    """The drop-in pipeline tools, one click away."""
+
+    def __init__(self, labels, parent=None):
+        super(ToolsDialog, self).__init__("PIPELINE TOOLS", parent)
+        self.resize(460, 380)
+        self.tool_list = QtWidgets.QListWidget()
+        for label in labels:
+            self.tool_list.addItem(label)
+        if labels:
+            self.tool_list.setCurrentRow(0)
+        self.layout_.addWidget(self.tool_list, 1)
+        self.layout_.addWidget(
+            _label("ADD YOUR OWN IN fivehub/tools/ — HDAS GO IN houdini/otls/", "hint")
+        )
+        self.add_buttons("RUN")
+        self.tool_list.itemDoubleClicked.connect(lambda _item: self.accept())
+
+    def selected_index(self):
+        row = self.tool_list.currentRow()
+        return row if row >= 0 else None
+
+
 class ReportDialog(_BaseDialog):
     """Pass/fail validation report. The failed heading is the one place
     the accent red appears inside Houdini."""

@@ -116,6 +116,19 @@ fivehub_houdini.publish_shot_assembly()
 ]]></scriptCode>
       </scriptItem>
 
+      <scriptItem id="fivehub_pipeline_tools">
+        <label>Pipeline Tools...</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.pipeline_tools()
+]]></scriptCode>
+      </scriptItem>
+
       <separatorItem/>
 
       <scriptItem id="fivehub_open_hub">

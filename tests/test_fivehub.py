@@ -1058,6 +1058,86 @@ class RecordsGitTests(unittest.TestCase):
                     os.environ[key] = value
 
 
+class ToolsRegistryTests(unittest.TestCase):
+    """Drop-in tools: one module plugs into CLI, validation and the worker."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.hub = os.path.join(self.tmp.name, "hub")
+        self.project = create_project("Tools", hub_root=self.hub)
+        self.project.create_entity("shot", "SH010")
+        self.project.create_task("shot", "SH010", "fx")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_registry_discovers_bundled_tools(self):
+        from fivehub import tools
+
+        registry = tools.load_tools()
+        self.assertIn("cache-path", [entry["name"] for entry in registry["cli"]])
+        self.assertIn(
+            "Create Pipeline File Cache",
+            [entry["label"] for entry in registry["houdini"]],
+        )
+        self.assertIs(tools.load_tools(), registry)  # loads once
+
+    def test_cache_path_nomenclature_via_cli(self):
+        env = dict(os.environ)
+        env[user.ENV_USER_FILE] = os.path.join(self.tmp.name, "user.json")
+        completed = subprocess.run(
+            [sys.executable, "-m", "fivehub.cli", "--hub", self.hub,
+             "cache-path", "Tools", "shot", "SH010", "fx", "smoke", "--version", "2"],
+            cwd=REPO, capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(
+            payload["dir"].endswith(os.path.join("fx", "caches", "smoke", "v002"))
+        )
+        self.assertTrue(payload["file"].endswith("SH010_fx_smoke_v002.$F4.bgeo.sc"))
+
+    def test_dropin_validation_rule_joins_the_chain(self):
+        from fivehub import tools
+        from fivehub.report import Rule
+
+        class NoTinyMeshRule(Rule):
+            rule_id = "tools.test_rule"
+            label = "Drop-in rule ran"
+            severity = Severity.WARNING
+
+            def check(self, request):
+                return []
+
+        tools.load_tools()
+        tools.validation_rule(NoTinyMeshRule)
+        try:
+            report = validate(usd_request(self.tmp.name))
+            self.assertIn("tools.test_rule", [r.rule_id for r in report.results])
+        finally:
+            tools.REGISTRY["rules"].remove(NoTinyMeshRule)
+
+    def test_dropin_job_handler_runs_on_worker(self):
+        from fivehub import tools
+        from fivehub.worker import run_once
+
+        tools.load_tools()
+
+        @tools.job_handler("echo")
+        def _echo(project, job):
+            return "done", "echo says %s" % job["payload"].get("word", "")
+
+        try:
+            self.project.db.enqueue_job("echo", {"word": "hello"}, user="ana")
+            executed = run_once(self.hub, "Tools", log=lambda *_a: None)
+            self.assertEqual(executed, 1)
+            job = self.project.db.list_jobs()[0]
+            self.assertEqual(job["status"], "done")
+            self.assertIn("echo says hello", job["log"])
+        finally:
+            tools.REGISTRY["jobs"].pop("echo", None)
+
+
 class DemoTests(unittest.TestCase):
     def test_demo_end_to_end(self):
         with tempfile.TemporaryDirectory() as tmp:
