@@ -220,6 +220,11 @@ class _BaseDialog(QtWidgets.QDialog):
         self.setObjectName("fivehubDialog")
         self.setStyleSheet(STYLE)
         self.setWindowTitle("FIVE HUB")
+        # Qt 5 dialogs grow a "?" (What's This) title-bar button on Windows
+        # that does nothing here — drop it.
+        self.setWindowFlags(
+            self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint
+        )
         self.layout_ = QtWidgets.QVBoxLayout(self)
         self.layout_.setContentsMargins(26, 26, 26, 26)
         self.layout_.setSpacing(16)
