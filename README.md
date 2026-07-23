@@ -183,9 +183,16 @@ FiveHub is the base; the pipeline grows by dropping things in, never by editing 
 ## DEVELOPMENT :
 
 ```
-python -m unittest discover -s tests -v    # 51 tests, no external deps
+python -m unittest discover -s tests -v    # 68 tests, no external deps
 python -m fivehub.cli demo                 # demo project for the app
 ```
+
+**Versioning is automatic.** Every merge to `main` bumps the version by the
+size of the change (`.github/workflows/version-bump.yml` →
+`scripts/bump_version.py`): under 100 changed lines = patch (+0.0.1),
+under 500 = minor (+0.1.0), 500 and up = major (+1.0.0). The bot commit
+updates `fivehub/__init__.py` + `app/package.json` and tags `vX.Y.Z` —
+never edit the version by hand.
 
 Core is dependency-free Python; the app shells out to the CLI so storage has one implementation. Houdini modules are compile-checked in CI-less environments — exercise them with a `hython` smoke run studio-side.
 
