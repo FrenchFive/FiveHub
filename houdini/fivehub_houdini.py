@@ -19,6 +19,7 @@ downstream (validation, USD authoring, database) is Houdini-free.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -59,6 +60,55 @@ def _source_info(nodes=()):
 
 def _current_context():
     return parse_scene_path(hou.hipFile.path())
+
+
+def _bind_context_env(project, context):
+    """$JOB + FiveHub vars point at the project so artists build relative
+    paths ($JOB/...) instead of baking server-absolute ones into hips."""
+    hou.putenv("JOB", project.root.replace("\\", "/"))
+    hou.putenv("FH_PROJECT", context["project"])
+    hou.putenv("FH_KIND", context["kind"])
+    hou.putenv("FH_ENTITY", context["entity"])
+    hou.putenv("FH_TASK", context["task"])
+    hou.putenv(
+        "FH_CACHES",
+        project.caches_dir(
+            context["kind"], context["entity"], context["task"]
+        ).replace("\\", "/"),
+    )
+
+
+def _apply_shot_settings(project, context):
+    """Push the shot's frame range and fps onto the session."""
+    meta = project.db.get_entity(context["kind"], context["entity"]) or {}
+    fps = meta.get("fps")
+    if fps:
+        try:
+            hou.setFps(fps)
+        except hou.OperationFailed:
+            pass
+    start, end = meta.get("frame_start"), meta.get("frame_end")
+    if start and end:
+        hou.playbar.setFrameRange(start, end)
+        hou.playbar.setPlaybackRange(start, end)
+
+
+def _entity_frame_range(project, context):
+    meta = project.db.get_entity(context["kind"], context["entity"]) or {}
+    settings = project.settings()
+    start = meta.get("frame_start") or settings["frame_start"]
+    end = meta.get("frame_end") or settings["frame_end"]
+    return int(start), int(end)
+
+
+def _after_context_change(project, context, scene_version=None):
+    _bind_context_env(project, context)
+    if context["kind"] == "shot":
+        _apply_shot_settings(project, context)
+    project.touch_presence(
+        context["kind"], context["entity"], context["task"], get_user(),
+        scene_version=scene_version, host=os.environ.get("HOSTNAME", ""),
+    )
 
 
 def _ensure_context(context):
@@ -117,20 +167,29 @@ def increment_save():
 
 
 def _save_into(context, notes):
+    """Claim the version in the database first (multi-user safe), then save
+    the hip at the claimed path, then complete — never overwrite a peer."""
     try:
         project = _ensure_context(context)
-        path, version = project.next_scene_path(
-            context["kind"], context["entity"], context["task"]
+        path, version = project.claim_scene(
+            context["kind"], context["entity"], context["task"], get_user()
         )
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        hou.hipFile.save(path)
-        project.register_scene(
-            context["kind"], context["entity"], context["task"],
-            version, path, notes, get_user(),
-        )
-    except (ValueError, hou.OperationFailed) as error:
+    except (ValueError, RuntimeError) as error:
         _error(str(error))
         return None
+    try:
+        hou.hipFile.save(path)
+        project.complete_scene(
+            context["kind"], context["entity"], context["task"],
+            version, notes, get_user(),
+        )
+    except (ValueError, hou.OperationFailed) as error:
+        project.release_scene(
+            context["kind"], context["entity"], context["task"], version
+        )
+        _error(str(error))
+        return None
+    _after_context_change(project, context, scene_version=version)
     _message(
         "SAVED %s\n%s / %s %s / %s"
         % (
@@ -159,6 +218,20 @@ def load_scene():
         return None
     except (hou.OperationFailed, hou.LoadWarning) as error:
         _message(str(error), hou.severityType.Warning)
+    context = parse_scene_path(scene_file)
+    if context:
+        try:
+            project = get_project(context["project"])
+            match = None
+            for scene in project.scenes(
+                context["kind"], context["entity"], context["task"]
+            ):
+                if scene["file"] == os.path.abspath(scene_file):
+                    match = scene["version"]
+                    break
+            _after_context_change(project, context, scene_version=match)
+        except ValueError:
+            pass
     return scene_file
 
 
@@ -208,10 +281,12 @@ def _extract_mesh(node, material_paths):
     ]
 
     normal_attrib = geo.findVertexAttrib("N") or geo.findPointAttrib("N")
+    uv_attrib = geo.findVertexAttrib("uv") or geo.findPointAttrib("uv")
 
     counts = []
     indices = []
     normals = [] if normal_attrib else None
+    uvs = [] if uv_attrib else None
     face_materials = []
     skipped = 0
 
@@ -227,12 +302,17 @@ def _extract_mesh(node, material_paths):
         counts.append(len(vertices))
         for vertex in vertices:
             indices.append(vertex.point().number())
-            if normals is None:
-                continue
-            if normal_attrib.type() == hou.attribType.Vertex:
-                normals.append(tuple(vertex.attribValue(normal_attrib)))
-            else:
-                normals.append(tuple(vertex.point().attribValue(normal_attrib)))
+            if normals is not None:
+                if normal_attrib.type() == hou.attribType.Vertex:
+                    normals.append(tuple(vertex.attribValue(normal_attrib)))
+                else:
+                    normals.append(tuple(vertex.point().attribValue(normal_attrib)))
+            if uvs is not None:
+                if uv_attrib.type() == hou.attribType.Vertex:
+                    value = vertex.attribValue(uv_attrib)
+                else:
+                    value = vertex.point().attribValue(uv_attrib)
+                uvs.append((value[0], value[1]))  # Houdini uv is 3-float
 
         path = ""
         if material_attrib is not None:
@@ -249,9 +329,30 @@ def _extract_mesh(node, material_paths):
         face_vertex_counts=counts,
         face_vertex_indices=indices,
         normals=normals,
+        uvs=uvs,
         face_materials=face_materials,
     )
     return mesh, skipped
+
+
+def _sample_animation(nodes, meshes, frame_start, frame_end, step=1):
+    """Per-frame point positions for each mesh (topology must hold)."""
+    original_frame = hou.frame()
+    try:
+        for mesh in meshes:
+            mesh.point_samples = {}
+        frame = frame_start
+        while frame <= frame_end:
+            hou.setFrame(frame)
+            for node, mesh in zip(nodes, meshes):
+                geo = _sop_geometry(node)
+                raw = geo.pointFloatAttribValues("P")
+                mesh.point_samples[float(frame)] = [
+                    (raw[i], raw[i + 1], raw[i + 2]) for i in range(0, len(raw), 3)
+                ]
+            frame += step
+    finally:
+        hou.setFrame(original_frame)
 
 
 def _material_from_path(path, used_names):
@@ -285,6 +386,25 @@ def _material_from_path(path, used_names):
             pass
     material.roughness = float(_parm("rough", material.roughness))
     material.metallic = float(_parm("metallic", material.metallic))
+
+    # Principled shader textures -> UsdUVTexture channels.
+    def _texture(toggle, parm_name):
+        if toggle and not _parm(toggle, 0):
+            return ""
+        value = str(_parm(parm_name, "")).strip()
+        return value if value and os.path.isfile(hou.text.expandString(value)) else ""
+
+    textures = {
+        "diffuse": _texture("basecolor_useTexture", "basecolor_texture"),
+        "roughness": _texture("rough_useTexture", "rough_texture"),
+        "metallic": _texture("metallic_useTexture", "metallic_texture"),
+        "normal": _texture("baseBumpAndNormal_enable", "baseNormal_texture"),
+    }
+    material.textures = {
+        channel: hou.text.expandString(path)
+        for channel, path in textures.items()
+        if path
+    }
     return material
 
 
@@ -407,6 +527,7 @@ def publish():
         return None
 
     dialog = PublishDialog(context=context)
+    dialog.set_frame_range(*_entity_frame_range(project, context))
     if not exec_dialog(dialog):
         return None
     values = dialog.values()
@@ -416,7 +537,7 @@ def publish():
 
     root = config.ensure_hub()
     thumbnail = os.path.join(
-        config.exchange_path(root),
+        config.user_exchange_path(root),
         "capture_%s.png" % naming.make_identifier(values["name"] or "publish"),
     )
     thumbnail = _capture_thumbnail(nodes, thumbnail)
@@ -428,6 +549,14 @@ def publish():
                 request, skipped = _build_usd_request(
                     nodes, values["name"], values["variant"], values["comment"]
                 )
+                if values.get("animated"):
+                    _sample_animation(
+                        nodes, request.meshes,
+                        values["frame_start"], values["frame_end"],
+                    )
+                    request.frame_start = values["frame_start"]
+                    request.frame_end = values["frame_end"]
+                    request.fps = hou.fps()
             except ValueError as error:
                 _error(str(error))
                 return None
@@ -436,12 +565,38 @@ def publish():
                 project, context["kind"], context["entity"], context["task"], request
             )
             extra = "Skipped %d non-polygon primitive(s)." % skipped if skipped else ""
+        elif values["format"] == "hda":
+            files, failures = _collect_hda_files(nodes)
+            if not files:
+                _error(
+                    "No HDA definitions in the selection.\n%s" % "\n".join(failures)
+                )
+                return None
+            request = FilePublishRequest(
+                asset_name=values["name"],
+                format="hda",
+                files=files,
+                variant=values["variant"],
+                comment=values["comment"],
+                thumbnail=thumbnail,
+                source=_source_info(nodes),
+            )
+            result = publish_files(
+                project, context["kind"], context["entity"], context["task"], request
+            )
+            extra = "\n".join(failures)
         else:
             scratch = os.path.join(
-                config.exchange_path(root), "export_%s" % uuid.uuid4().hex[:8]
+                config.user_exchange_path(root), "export_%s" % uuid.uuid4().hex[:8]
             )
             os.makedirs(scratch, exist_ok=True)
-            files, failures = _export_node_files(nodes, values["format"], scratch)
+            if values.get("animated"):
+                files, failures = _export_node_sequences(
+                    nodes, values["format"], scratch,
+                    values["frame_start"], values["frame_end"],
+                )
+            else:
+                files, failures = _export_node_files(nodes, values["format"], scratch)
             if failures and not files:
                 _error("Nothing could be exported:\n%s" % "\n".join(failures))
                 return None
@@ -495,18 +650,71 @@ def _export_node_files(nodes, format_name, scratch):
     return files, failures
 
 
+def _export_node_sequences(nodes, format_name, scratch, frame_start, frame_end):
+    """Write each node's geometry per frame — vdb/bgeo cache sequences."""
+    extension = FILE_EXPORT_EXTENSION[format_name]
+    files, failures = [], []
+    original_frame = hou.frame()
+    used = set()
+    try:
+        for node in nodes:
+            name = naming.make_identifier(node.name())
+            while name in used:
+                name += "_1"
+            used.add(name)
+            for frame in range(int(frame_start), int(frame_end) + 1):
+                hou.setFrame(frame)
+                target = os.path.join(scratch, "%s.%04d%s" % (name, frame, extension))
+                try:
+                    geometry = _sop_geometry(node)
+                    if geometry is None:
+                        raise ValueError("no geometry")
+                    geometry.saveToFile(target)
+                    files.append(target)
+                except (ValueError, hou.OperationFailed, hou.Error) as error:
+                    failures.append("%s f%d: %s" % (node.path(), frame, error))
+                    break
+    finally:
+        hou.setFrame(original_frame)
+    return files, failures
+
+
+def _collect_hda_files(nodes):
+    """The .hda library files behind the selected nodes' definitions."""
+    files, failures = [], []
+    seen = set()
+    for node in nodes:
+        definition = node.type().definition()
+        if definition is None:
+            failures.append("%s has no HDA definition" % node.path())
+            continue
+        library = definition.libraryFilePath()
+        if not library or library == "Embedded" or not os.path.isfile(library):
+            failures.append("%s: definition is embedded — save it to a file first"
+                            % node.path())
+            continue
+        if library not in seen:
+            seen.add(library)
+            files.append(library)
+    return files, failures
+
+
 # -- import --------------------------------------------------------------
 
 
 def load_asset():
     from fivehub_windows import LoadAssetDialog, exec_dialog
 
-    dialog = LoadAssetDialog(prefill=_current_context())
+    context = _current_context()
+    dialog = LoadAssetDialog(prefill=context)
     if not exec_dialog(dialog):
         return None
     row = dialog.selected_publish()
     if not row:
         return None
+    source = dialog.context_widget.context()
+    # Picking a row in the browser pins the exact version.
+    _track_dependency(context, source, row["format"], row["name"], row["version"])
     return _import_publish(row["format"], row["path"], row["name"])
 
 
@@ -524,6 +732,18 @@ def import_staged():
     if not path or not os.path.exists(path):
         _error("The staged publish is missing on disk:\n%s" % path)
         return None
+    _track_dependency(
+        _current_context(),
+        {
+            "project": selection.get("project", ""),
+            "kind": selection.get("kind", "asset"),
+            "entity": selection.get("entity", ""),
+            "task": selection.get("task", ""),
+        },
+        selection.get("format", config.DEFAULT_FORMAT),
+        selection.get("name", "asset"),
+        selection.get("version"),  # None = follows latest via the root layer
+    )
     return _import_publish(
         selection.get("format", config.DEFAULT_FORMAT),
         path,
@@ -531,33 +751,105 @@ def import_staged():
     )
 
 
+def _track_dependency(context, source, format_name, name, version):
+    """Remember that the current scene's task uses a publish (same project)."""
+    if not context or not source.get("entity"):
+        return
+    if source.get("project") and source["project"] != context["project"]:
+        return
+    try:
+        project = get_project(context["project"])
+        consumer = project._task_record(
+            context["kind"], context["entity"], context["task"]
+        )
+        producer = project._task_record(
+            source["kind"], source["entity"], source["task"]
+        )
+    except ValueError:
+        return
+    project.db.record_dependency(
+        consumer["id"], producer["id"], format_name, name,
+        src_version=version or None, user=get_user(),
+    )
+
+
 def _import_publish(format_name, path, name):
     node_name = naming.make_identifier(name)
+
     if format_name == "usd":
+        # Ingested USD rows point at the version dir — find the layer.
+        if os.path.isdir(path):
+            layers = sorted(
+                entry for entry in os.listdir(path)
+                if entry.lower().endswith((".usd", ".usda", ".usdc", ".usdz"))
+            )
+            if layers:
+                path = os.path.join(path, layers[0])
         return _import_usd(path, node_name)
 
-    # File formats: one geo object, one File SOP per published file.
+    if format_name == "hda":
+        installed = []
+        files = [path] if os.path.isfile(path) else [
+            os.path.join(path, entry) for entry in sorted(os.listdir(path))
+            if entry.lower().endswith((".hda", ".otl", ".hdanc", ".hdalc"))
+        ]
+        for library in files:
+            hou.hda.installFile(library)
+            installed.append(os.path.basename(library))
+        _message("Installed HDA librarie(s):\n%s" % "\n".join(installed or ["none"]))
+        return installed
+
+    # File formats: one geo object; frame sequences collapse to one File
+    # SOP with $F4, single files get one File SOP each.
     if os.path.isdir(path):
         files = sorted(
             os.path.join(path, entry)
             for entry in os.listdir(path)
             if os.path.isfile(os.path.join(path, entry))
             and not entry.endswith(".json")
+            and os.path.basename(os.path.dirname(os.path.join(path, entry)))
+            != config.THUMBNAILS_DIR
         )
     else:
         files = [path]
+    files = [f for f in files if config.THUMBNAILS_DIR not in f.split(os.sep)]
     if not files:
         _error("No files found in publish:\n%s" % path)
         return None
+
     container = hou.node("/obj").createNode("geo", node_name)
-    for file_path in files:
-        file_sop = container.createNode(
-            "file", naming.make_identifier(os.path.basename(file_path).split(".")[0])
-        )
-        file_sop.parm("file").set(file_path)
+    for label, parm_value in _group_sequences(files):
+        file_sop = container.createNode("file", naming.make_identifier(label))
+        file_sop.parm("file").set(parm_value)
     container.moveToGoodPosition()
     container.layoutChildren()
     return container
+
+
+def _group_sequences(files):
+    """[(label, file-parm value)] — frame sequences become $F4 patterns."""
+    groups = {}
+    for path in files:
+        base = os.path.basename(path)
+        match = re.match(r"^(.*?)\.(\d+)(\.[A-Za-z0-9.]+)$", base)
+        if match:
+            key = (match.group(1), len(match.group(2)), match.group(3))
+            groups.setdefault(key, []).append(path)
+        else:
+            groups.setdefault(base, []).append(path)
+    result = []
+    for key, members in groups.items():
+        if isinstance(key, tuple) and len(members) > 1:
+            prefix, padding, extension = key
+            pattern = os.path.join(
+                os.path.dirname(members[0]),
+                "%s.$F%d%s" % (prefix, padding, extension),
+            )
+            result.append((prefix, pattern))
+        else:
+            for member in members:
+                result.append((os.path.basename(member).split(".")[0], member))
+    return result
 
 
 def _import_usd(layer, node_name):
@@ -581,6 +873,106 @@ def _import_usd(layer, node_name):
     importer.parm("filepath1").set(layer)
     container.moveToGoodPosition()
     return container
+
+
+# -- render & assembly ---------------------------------------------------
+
+
+def submit_render():
+    """Queue a render of the current pipeline scene on the FiveHub worker."""
+    from fivehub.render import submit_render as core_submit
+    from fivehub_windows import RenderDialog, exec_dialog
+
+    context = _current_context()
+    if context is None:
+        _error(
+            "This scene is not saved in the pipeline.\n\n"
+            "Use FIVE HUB > Save Scene As... first — renders run from a "
+            "saved scene version."
+        )
+        return None
+    match = re.search(r"_v(\d+)\.hip", context["file"])
+    if not match:
+        _error("Could not read the scene version from %r." % context["file"])
+        return None
+    scene_version = int(match.group(1))
+
+    rops = [node.path() for node in hou.node("/out").children()]
+    stage = hou.node("/stage")
+    if stage is not None:
+        rops += [
+            node.path() for node in stage.allSubChildren()
+            if node.type().name().startswith("usdrender")
+        ]
+    if not rops:
+        _error("No ROP nodes found (looked in /out and /stage).")
+        return None
+
+    try:
+        project = get_project(context["project"])
+    except ValueError as error:
+        _error(str(error))
+        return None
+    start, end = _entity_frame_range(project, context)
+
+    dialog = RenderDialog(context, rops, start, end, scene_version)
+    if not exec_dialog(dialog):
+        return None
+    values = dialog.values()
+    try:
+        result = core_submit(
+            project, context["kind"], context["entity"], context["task"],
+            scene_version, values["rop"],
+            frame_start=values["frame_start"], frame_end=values["frame_end"],
+            step=values["step"], user=get_user(),
+        )
+    except ValueError as error:
+        _error(str(error))
+        return None
+    _message(
+        "RENDER QUEUED\n%s  f%d-%d\n\nA FiveHub worker will pick it up\n"
+        "(python -m fivehub.cli worker on the server)."
+        % (values["rop"], result["frame_start"], result["frame_end"])
+    )
+    return result
+
+
+def publish_shot_assembly():
+    """Publish this task's tracked USD imports as one assembly layer."""
+    from fivehub.assembly import publish_assembly
+
+    context = _current_context()
+    if context is None:
+        _error(
+            "This scene is not saved in the pipeline.\n\n"
+            "Assemblies are built from the imports tracked on a saved "
+            "project scene."
+        )
+        return None
+    pressed, values = hou.ui.readMultiInput(
+        "Publish assembly of %s / %s" % (context["entity"], context["task"]),
+        ("Comment",),
+        buttons=("Publish", "Cancel"),
+        default_choice=0,
+        close_choice=1,
+        title="FIVE HUB",
+    )
+    if pressed != 0:
+        return None
+    try:
+        project = get_project(context["project"])
+        result = publish_assembly(
+            project, context["entity"], context["task"],
+            kind=context["kind"], comment=values[0].strip(), user=get_user(),
+        )
+    except ValueError as error:
+        _error(str(error))
+        return None
+    _message(
+        "ASSEMBLY PUBLISHED %s\n%d reference(s)\n%s"
+        % (result["version_label"], result["references"], result["layer"])
+    )
+    return result
 
 
 # -- app -----------------------------------------------------------------

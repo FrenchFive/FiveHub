@@ -284,6 +284,55 @@ class UnknownMaterialRule(Rule):
         return issues
 
 
+class TextureFilesRule(Rule):
+    rule_id = "mtl.textures"
+    label = "All referenced texture files exist"
+    severity = Severity.ERROR
+
+    def applies(self, request):
+        return bool(getattr(request, "materials", None))
+
+    def check(self, request):
+        issues = []
+        for material in request.materials.values():
+            for channel, file_path in (getattr(material, "textures", None) or {}).items():
+                if not file_path:
+                    continue
+                if file_path.startswith("./"):
+                    continue  # already collected into a publish
+                if not os.path.isfile(file_path):
+                    issues.append(
+                        "material %r: %s texture is missing: %s"
+                        % (material.name, channel, file_path)
+                    )
+        return issues
+
+
+class AnimationTopologyRule(Rule):
+    rule_id = "anim.topology"
+    label = "Animated meshes keep constant topology"
+    severity = Severity.ERROR
+
+    def applies(self, request):
+        return any(mesh.point_samples for mesh in getattr(request, "meshes", []) or [])
+
+    def check(self, request):
+        issues = []
+        for mesh in request.meshes:
+            if not mesh.point_samples:
+                continue
+            expected = len(mesh.points)
+            for frame, points in mesh.point_samples.items():
+                if len(points) != expected:
+                    issues.append(
+                        "mesh %r frame %s has %d points, expected %d — "
+                        "changing topology cannot publish as sampled USD"
+                        % (mesh.name, frame, len(points), expected)
+                    )
+                    break
+        return issues
+
+
 class ThumbnailRule(Rule):
     rule_id = "asset.thumbnail"
     label = "Thumbnail is captured for the asset"
@@ -351,6 +400,8 @@ DEFAULT_RULES = (
     DegenerateFacesRule,
     MissingMaterialRule,
     UnknownMaterialRule,
+    TextureFilesRule,
+    AnimationTopologyRule,
     ThumbnailRule,
 )
 

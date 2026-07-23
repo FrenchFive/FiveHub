@@ -17,7 +17,11 @@
     </header>
     <main class="content">
       <div class="stack">
-        <h1 class="title" id="task-title"></h1>
+        <div class="row">
+          <h1 class="title" id="task-title"></h1>
+          <span class="spacer"></span>
+          <span class="label" id="presence"></span>
+        </div>
         <section>
           <div class="section-head">
             <div class="label">WORK SCENES</div>
@@ -27,8 +31,15 @@
         <section>
           <div class="section-head">
             <div class="label">PUBLISHES</div>
+            <button class="btn" id="ingest" title="Publish external files into this task">INGEST FILES</button>
           </div>
           <div id="publishes"></div>
+        </section>
+        <section id="deps-section" class="hidden">
+          <div class="section-head">
+            <div class="label">DEPENDENCIES</div>
+          </div>
+          <div id="deps"></div>
         </section>
       </div>
     </main>

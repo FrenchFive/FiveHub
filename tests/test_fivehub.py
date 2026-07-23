@@ -237,11 +237,7 @@ class UserTests(unittest.TestCase):
         )
 
         # Scene saves are signed the same way when no user is given.
-        path, version = project.next_scene_path("asset", "Crate", "modeling")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as handle:
-            handle.write("hip")
-        project.register_scene("asset", "Crate", "modeling", version, path)
+        project.register_scene("asset", "Crate", "modeling")
         self.assertEqual(project.scenes("asset", "Crate", "modeling")[0]["user"], "Signer")
 
 
@@ -307,10 +303,7 @@ class ProjectTests(unittest.TestCase):
         # Scene context parses from the external root too.
         project.create_entity("asset", "Ship")
         project.create_task("asset", "Ship", "modeling")
-        path, version = project.next_scene_path("asset", "Ship", "modeling")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as handle:
-            handle.write("hip")
+        path, _version = project.register_scene("asset", "Ship", "modeling")
         context = parse_scene_path(path, self.hub)
         self.assertEqual(context["project"], "Orbital")
         self.assertEqual(context["entity"], "Ship")
@@ -331,34 +324,39 @@ class ProjectTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             project.create_task("asset", "Crate", "bad task")
 
-    def test_scene_versioning(self):
+    def test_scene_versioning_with_claims(self):
         project = create_project("Epsilon", hub_root=self.hub)
         project.create_entity("shot", "SH010")
         project.create_task("shot", "SH010", "fx")
 
-        path, version = project.next_scene_path("shot", "SH010", "fx")
+        # Claim -> the version is reserved before any file exists; a second
+        # claim can never get the same number (the multi-user guarantee).
+        path, version = project.claim_scene("shot", "SH010", "fx", "ana")
         self.assertEqual(version, 1)
         self.assertTrue(path.endswith("SH010_fx_v001.hip"))
+        path2, version2 = project.claim_scene("shot", "SH010", "fx", "five")
+        self.assertEqual(version2, 2)
+
+        # Pending claims are invisible until completed.
+        self.assertEqual(project.scenes("shot", "SH010", "fx"), [])
 
         with self.assertRaises(ValueError):
-            project.register_scene("shot", "SH010", "fx", version, path)  # not written
+            project.complete_scene("shot", "SH010", "fx", version)  # not written
 
-        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as handle:
             handle.write("hip")
-        project.register_scene("shot", "SH010", "fx", version, path, "first pass", "ana")
-
-        path2, version2 = project.next_scene_path("shot", "SH010", "fx")
-        self.assertEqual(version2, 2)
-        with open(path2, "w") as handle:
-            handle.write("hip")
-        project.register_scene("shot", "SH010", "fx", version2, path2)
+        project.complete_scene("shot", "SH010", "fx", version, "first pass", "ana")
+        project.release_scene("shot", "SH010", "fx", version2)  # save cancelled
 
         scenes = project.scenes("shot", "SH010", "fx")
-        self.assertEqual([s["version"] for s in scenes], [2, 1])
-        self.assertEqual(scenes[1]["notes"], "first pass")
+        self.assertEqual([s["version"] for s in scenes], [1])
+        self.assertEqual(scenes[0]["notes"], "first pass")
+        # The released number is reused by the next claim.
+        _, version3 = project.claim_scene("shot", "SH010", "fx")
+        self.assertEqual(version3, 2)
+        project.release_scene("shot", "SH010", "fx", version3)
 
-        context = parse_scene_path(path2, self.hub)
+        context = parse_scene_path(path, self.hub)
         self.assertEqual(
             context,
             {
@@ -366,11 +364,43 @@ class ProjectTests(unittest.TestCase):
                 "kind": "shot",
                 "entity": "SH010",
                 "task": "fx",
-                "file": "SH010_fx_v002.hip",
+                "file": "SH010_fx_v001.hip",
             },
         )
         self.assertIsNone(parse_scene_path("/somewhere/else.hip", self.hub))
         self.assertIsNone(parse_scene_path("", self.hub))
+
+    def test_paths_stored_relative(self):
+        import sqlite3
+
+        project = create_project("Rel", hub_root=self.hub)
+        project.create_entity("asset", "Crate")
+        project.create_task("asset", "Crate", "modeling")
+        path, _version = project.register_scene("asset", "Crate", "modeling", "n")
+        self.assertTrue(os.path.isabs(path))
+
+        with sqlite3.connect(os.path.join(project.root, config.PROJECT_DB)) as conn:
+            stored = conn.execute("SELECT file FROM scene").fetchone()[0]
+        self.assertFalse(os.path.isabs(stored))
+        self.assertNotIn("\\", stored)
+        # And the boundary translates back to absolute.
+        self.assertEqual(project.scenes("asset", "Crate", "modeling")[0]["file"], path)
+
+    def test_shot_metadata_defaults_and_update(self):
+        project = create_project("Meta", hub_root=self.hub)
+        project.create_entity("shot", "SH020", sequence="SEQ010")
+        shot = project.db.get_entity("shot", "SH020")
+        self.assertEqual(shot["sequence"], "SEQ010")
+        self.assertEqual(shot["frame_start"], 1001)  # project defaults applied
+        self.assertEqual(shot["fps"], 24.0)
+        self.assertEqual(shot["res_x"], 1920)
+
+        project.update_entity("shot", "SH020", frame_start=1001, frame_end=1250)
+        self.assertEqual(project.db.get_entity("shot", "SH020")["frame_end"], 1250)
+
+        # Assets carry no forced frame data.
+        project.create_entity("asset", "Crate")
+        self.assertIsNone(project.db.get_entity("asset", "Crate")["frame_start"])
 
 
 class PublishTests(unittest.TestCase):
@@ -511,12 +541,7 @@ class EditDeleteTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _scene(self, notes=""):
-        path, version = self.project.next_scene_path("asset", "Crate", "modeling")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as handle:
-            handle.write("hip")
-        self.project.register_scene("asset", "Crate", "modeling", version, path, notes)
-        return path, version
+        return self.project.register_scene("asset", "Crate", "modeling", notes)
 
     def test_scene_edit_and_delete(self):
         path, version = self._scene("first")
@@ -529,6 +554,11 @@ class EditDeleteTests(unittest.TestCase):
         self.assertEqual(self.project.scenes("asset", "Crate", "modeling"), [])
         with self.assertRaises(ValueError):
             self.project.delete_scene("asset", "Crate", "modeling", version)
+        # Soft: the file went to the trash, not into the void, and the
+        # version number is never reused.
+        self.assertTrue(os.listdir(self.project.trash_dir()))
+        _, next_version = self._scene("after delete")
+        self.assertEqual(next_version, version + 1)
 
     def test_publish_delete_rebuilds_usd_root(self):
         publish_usd(self.project, "asset", "Crate", "modeling",
@@ -582,6 +612,305 @@ class EditDeleteTests(unittest.TestCase):
         self.assertFalse(os.path.exists(local_root))
         with self.assertRaises(ValueError):
             remove_project("Ops", self.hub)
+
+
+class IngestRefsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.hub = os.path.join(self.tmp.name, "hub")
+        self.project = create_project("Ing", hub_root=self.hub)
+        self.project.create_entity("asset", "Kit")
+        self.project.create_task("asset", "Kit", "modeling")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _file(self, name, content=b"data"):
+        path = os.path.join(self.tmp.name, name)
+        with open(path, "wb") as handle:
+            handle.write(content)
+        return path
+
+    def test_ingest_external_files(self):
+        from fivehub.ingest import infer_format, ingest_files
+
+        self.assertEqual(infer_format("model.FBX"), "fbx")
+        self.assertEqual(infer_format("cache.bgeo.sc"), "bgeo")
+        self.assertEqual(infer_format("map.exr"), "tex")
+        self.assertIsNone(infer_format("weird.xyz"))
+
+        fbx = self._file("vendor.fbx")
+        result = ingest_files(
+            self.project, "asset", "Kit", "modeling", [fbx], comment="from vendor"
+        )
+        self.assertTrue(result.passed, result.report.to_text())
+        self.assertEqual(result.format, "fbx")
+        self.assertEqual(result.version, 1)
+        self.assertTrue(os.path.isfile(os.path.join(result.publish_dir, "vendor.fbx")))
+        row = self.project.publishes("asset", "Kit", "modeling")[0]
+        self.assertEqual(row["format"], "fbx")
+
+        with self.assertRaises(ValueError):
+            ingest_files(
+                self.project, "asset", "Kit", "modeling",
+                [self._file("a.fbx"), self._file("b.abc")],  # mixed
+            )
+        with self.assertRaises(ValueError):
+            ingest_files(self.project, "asset", "Kit", "modeling",
+                         [self._file("weird.xyz")])
+
+    def test_refs_gallery(self):
+        from fivehub.ingest import add_refs, delete_ref, list_refs
+
+        board = self._file("board.png")
+        brief = self._file("brief.pdf")
+        add_refs(self.project, [board, brief])
+        add_refs(self.project, [board])  # same name -> suffixed, not clobbered
+        refs = list_refs(self.project)
+        names = sorted(ref["name"] for ref in refs)
+        self.assertEqual(names, ["board.png", "board_2.png", "brief.pdf"])
+        self.assertTrue(next(r for r in refs if r["name"] == "board.png")["is_image"])
+
+        delete_ref(self.project, "board_2.png")
+        self.assertEqual(len(list_refs(self.project)), 2)
+        with self.assertRaises(ValueError):
+            delete_ref(self.project, "nope.png")
+
+
+class TextureUvTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.hub = os.path.join(self.tmp.name, "hub")
+        self.project = create_project("Look", hub_root=self.hub)
+        self.project.create_entity("asset", "Crate")
+        self.project.create_task("asset", "Crate", "lookdev")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_uvs_and_textures_published(self):
+        mesh = cube_mesh()
+        mesh.uvs = [(0.0, 0.0)] * len(mesh.face_vertex_indices)
+        diffuse = write_placeholder_png(os.path.join(self.tmp.name, "wood_diff.png"))
+        rough = write_placeholder_png(os.path.join(self.tmp.name, "wood_rough.png"))
+        material = MaterialData(
+            "M_DemoWood", textures={"diffuse": diffuse, "roughness": rough}
+        )
+        request = usd_request(
+            self.tmp.name, name="Crate", meshes=[mesh],
+            materials={"M_DemoWood": material},
+        )
+        result = publish_usd(self.project, "asset", "Crate", "lookdev", request)
+        self.assertTrue(result.passed, result.report.to_text())
+
+        with open(os.path.join(result.publish_dir, "Crate.geo.usda")) as handle:
+            geo = handle.read()
+        self.assertIn("texCoord2f[] primvars:st", geo)
+        self.assertIn('interpolation = "faceVarying"', geo)
+
+        with open(os.path.join(result.publish_dir, "Crate.mtl.usda")) as handle:
+            mtl = handle.read()
+        self.assertIn('info:id = "UsdUVTexture"', mtl)
+        self.assertIn('info:id = "UsdPrimvarReader_float2"', mtl)
+        self.assertIn("inputs:file = @./textures/wood_diff.png@", mtl)
+        self.assertIn("inputs:diffuseColor.connect", mtl)
+        self.assertIn("inputs:roughness.connect", mtl)
+        self.assertTrue(
+            os.path.isfile(os.path.join(result.publish_dir, "textures", "wood_diff.png"))
+        )
+
+    def test_missing_texture_blocks(self):
+        material = MaterialData("M_DemoWood", textures={"diffuse": "/missing/tex.png"})
+        request = usd_request(
+            self.tmp.name, name="Crate", materials={"M_DemoWood": material}
+        )
+        result = publish_usd(self.project, "asset", "Crate", "lookdev", request)
+        self.assertFalse(result.passed)
+        failed = [r.rule_id for r in result.report.results
+                  if r.status == Status.FAIL and r.severity == Severity.ERROR]
+        self.assertIn("mtl.textures", failed)
+
+
+class AnimationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.hub = os.path.join(self.tmp.name, "hub")
+        self.project = create_project("Anim", hub_root=self.hub)
+        self.project.create_entity("shot", "SH010")
+        self.project.create_task("shot", "SH010", "animation")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_time_sampled_usd(self):
+        mesh = cube_mesh(name="crate")
+        mesh.point_samples = {
+            1001.0: list(mesh.points),
+            1002.0: [(x, y + 0.1, z) for x, y, z in mesh.points],
+        }
+        request = usd_request(
+            self.tmp.name, name="SH010", meshes=[mesh],
+            frame_start=1001, frame_end=1002, fps=24.0,
+        )
+        result = publish_usd(self.project, "shot", "SH010", "animation", request)
+        self.assertTrue(result.passed, result.report.to_text())
+        with open(os.path.join(result.publish_dir, "SH010.geo.usda")) as handle:
+            geo = handle.read()
+        self.assertIn("startTimeCode = 1001", geo)
+        self.assertIn("endTimeCode = 1002", geo)
+        self.assertIn("points.timeSamples", geo)
+        self.assertIn("1002:", geo)
+
+    def test_changing_topology_blocks(self):
+        mesh = cube_mesh(name="crate")
+        mesh.point_samples = {1001.0: list(mesh.points), 1002.0: mesh.points[:-1]}
+        request = usd_request(self.tmp.name, name="SH010", meshes=[mesh])
+        result = publish_usd(self.project, "shot", "SH010", "animation", request)
+        self.assertFalse(result.passed)
+        failed = [r.rule_id for r in result.report.results if r.status == Status.FAIL]
+        self.assertIn("anim.topology", failed)
+
+
+class JobsRenderTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.hub = os.path.join(self.tmp.name, "hub")
+        self.project = create_project("Rend", hub_root=self.hub)
+        self.project.create_entity("shot", "SH010", frame_start=1001, frame_end=1002)
+        self.project.create_task("shot", "SH010", "lighting")
+        self._env = {
+            key: os.environ.pop(key, None)
+            for key in ("FIVEHUB_HYTHON", "FIVEHUB_HOUDINI")
+        }
+
+    def tearDown(self):
+        for key, value in self._env.items():
+            if value is not None:
+                os.environ[key] = value
+        self.tmp.cleanup()
+
+    def test_submit_claim_and_worker_without_hython(self):
+        from fivehub.render import submit_render
+        from fivehub.worker import run_once
+
+        with self.assertRaises(ValueError):
+            submit_render(self.project, "shot", "SH010", "lighting", 1, "/out/karma1")
+
+        self.project.register_scene("shot", "SH010", "lighting", "for render")
+        submitted = submit_render(
+            self.project, "shot", "SH010", "lighting", 1, "/out/karma1"
+        )
+        self.assertEqual(submitted["frame_start"], 1001)  # shot metadata drives it
+        self.assertEqual(submitted["frame_end"], 1002)
+
+        jobs = self.project.db.list_jobs()
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["status"], "queued")
+
+        # A worker without hython fails the job cleanly and says why.
+        executed = run_once(self.hub, "Rend", log=lambda *_a: None)
+        self.assertEqual(executed, 1)
+        job = self.project.db.list_jobs()[0]
+        self.assertEqual(job["status"], "failed")
+        self.assertIn("hython not found", job["log"])
+        # The failed render released its claim — no publish row remains.
+        self.assertEqual(self.project.publishes("shot", "SH010", "lighting"), [])
+
+    def test_cancel_queued_job(self):
+        job_id = self.project.db.enqueue_job("render", {"x": 1}, user="ana")
+        self.project.db.cancel_job(job_id)
+        self.assertEqual(self.project.db.list_jobs()[0]["status"], "cancelled")
+        claimed = self.project.db.claim_job("worker-1")
+        self.assertIsNone(claimed)  # cancelled jobs are never claimed
+
+
+class AssemblyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.hub = os.path.join(self.tmp.name, "hub")
+        self.project = create_project("Asm", hub_root=self.hub)
+        self.project.create_entity("asset", "Crate")
+        self.project.create_task("asset", "Crate", "modeling")
+        self.project.create_entity("shot", "SH010")
+        self.project.create_task("shot", "SH010", "layout")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_assembly_from_tracked_dependencies(self):
+        from fivehub.assembly import publish_assembly
+
+        with self.assertRaises(ValueError):
+            publish_assembly(self.project, "SH010", "layout")
+
+        publish_usd(self.project, "asset", "Crate", "modeling",
+                    usd_request(self.tmp.name, name="Crate"))
+        consumer = self.project._task_record("shot", "SH010", "layout")
+        producer = self.project._task_record("asset", "Crate", "modeling")
+        self.project.db.record_dependency(
+            consumer["id"], producer["id"], "usd", "Crate", None, "ana"
+        )
+
+        result = publish_assembly(self.project, "SH010", "layout", comment="first")
+        self.assertEqual(result["references"], 1)
+        with open(result["layer"]) as handle:
+            layer = handle.read()
+        self.assertIn('kind = "assembly"', layer)
+        self.assertIn("Crate.usda@", layer)  # references the root interface
+
+        # It registers as a usd publish on the layout task.
+        rows = self.project.publishes("shot", "SH010", "layout")
+        self.assertEqual(rows[0]["name"], "SH010_assembly")
+
+        # Dependency queries see both directions, with latest-version info.
+        uses = self.project.db.dependencies_of(consumer["id"])
+        self.assertEqual(uses[0]["latest_version"], 1)
+        self.assertEqual(
+            self.project.db.used_by(producer["id"])[0]["consumer_entity"], "SH010"
+        )
+
+
+class PresenceTrashBackupTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.hub = os.path.join(self.tmp.name, "hub")
+        self.project = create_project("Ops2", hub_root=self.hub)
+        self.project.create_entity("asset", "Crate")
+        self.project.create_task("asset", "Crate", "modeling")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_presence(self):
+        self.project.touch_presence("asset", "Crate", "modeling", "ana", 3, "ws-01")
+        rows = self.project.task_presence("asset", "Crate", "modeling")
+        self.assertEqual(rows[0]["user"], "ana")
+        self.assertEqual(rows[0]["scene_version"], 3)
+        self.project.db.clear_presence("ana")
+        self.assertEqual(self.project.task_presence("asset", "Crate", "modeling"), [])
+
+    def test_trash_empty(self):
+        path, version = self.project.register_scene("asset", "Crate", "modeling")
+        self.project.delete_scene("asset", "Crate", "modeling", version)
+        self.assertTrue(os.listdir(self.project.trash_dir()))
+        purged = self.project.empty_trash()
+        self.assertTrue(purged)
+        self.assertFalse(os.listdir(self.project.trash_dir()))
+
+    def test_backup_via_cli(self):
+        env = dict(os.environ)
+        env[user.ENV_USER_FILE] = os.path.join(self.tmp.name, "user.json")
+        completed = subprocess.run(
+            [sys.executable, "-m", "fivehub.cli", "--hub", self.hub, "backup"],
+            cwd=REPO, capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(
+            any(path.endswith("Ops2.db") for path in payload["files"])
+        )
+        for path in payload["files"]:
+            self.assertTrue(os.path.isfile(path))
 
 
 class DemoTests(unittest.TestCase):

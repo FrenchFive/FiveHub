@@ -53,10 +53,26 @@ def cmd_project_create(root, args):
                         "image_path": project.image_path()}}
 
 
+def _entity_fields(args):
+    fields = {}
+    for key in ("sequence", "frame_start", "frame_end", "fps", "res_x", "res_y"):
+        value = getattr(args, key, None)
+        if value not in (None, ""):
+            fields[key] = value
+    return fields
+
+
 def cmd_entity_create(root, args):
     project = get_project(args.project, root)
-    project.create_entity(args.kind, args.name)
+    project.create_entity(args.kind, args.name, **_entity_fields(args))
     return {"created": {"project": args.project, "kind": args.kind, "name": args.name}}
+
+
+def cmd_entity_update(root, args):
+    project = get_project(args.project, root)
+    fields = _entity_fields(args)
+    project.update_entity(args.kind, args.name, **fields)
+    return {"updated": {"kind": args.kind, "name": args.name, **fields}}
 
 
 def cmd_task_create(root, args):
@@ -78,8 +94,14 @@ def cmd_browse(root, args):
 
 def cmd_task_info(root, args):
     project = get_project(args.project, root)
-    scenes = project.scenes(args.kind, args.entity, args.task)
-    publishes = project.publishes(args.kind, args.entity, args.task)
+    task_record = project._task_record(args.kind, args.entity, args.task)
+    dependencies = project.db.dependencies_of(task_record["id"])
+    for dep in dependencies:
+        dep["outdated"] = bool(
+            dep["src_version"]
+            and dep["latest_version"]
+            and dep["latest_version"] > dep["src_version"]
+        )
     return {
         "context": {
             "project": args.project,
@@ -87,8 +109,13 @@ def cmd_task_info(root, args):
             "entity": args.entity,
             "task": args.task,
         },
-        "scenes": scenes,
-        "publishes": publishes,
+        "root": project.root,
+        "entity": project.db.get_entity(args.kind, args.entity),
+        "scenes": project.scenes(args.kind, args.entity, args.task),
+        "publishes": project.publishes(args.kind, args.entity, args.task),
+        "presence": project.task_presence(args.kind, args.entity, args.task),
+        "uses": dependencies,
+        "used_by": project.db.used_by(task_record["id"]),
     }
 
 
@@ -114,11 +141,12 @@ def cmd_activity(root, args):
 def cmd_send(root, args):
     """Stage a publish for pickup by the Houdini import tool."""
     project = get_project(args.project, root)
-    task_record = project._task_record(args.kind, args.entity, args.task)
     format_name = args.format or config.DEFAULT_FORMAT
 
     if args.version:
-        row = project.db.get_publish(task_record["id"], format_name, args.version)
+        row = project.get_publish(
+            args.kind, args.entity, args.task, format_name, args.version
+        )
         if row is None:
             raise SystemExit(
                 "no %s publish v%03d on that task" % (format_name, args.version)
@@ -126,7 +154,7 @@ def cmd_send(root, args):
         path = row["path"]
         name = row["name"]
     else:
-        row = project.db.latest_publish(task_record["id"], format_name)
+        row = project.latest_publish(args.kind, args.entity, args.task, format_name)
         if row is None:
             raise SystemExit("no %s publish on that task yet" % format_name)
         name = row["name"]
@@ -205,6 +233,101 @@ def cmd_publish_comment(root, args):
     return {"updated": {"version": args.version, "comment": args.comment}}
 
 
+def cmd_ingest(root, args):
+    from .ingest import ingest_files
+
+    result = ingest_files(
+        get_project(args.project, root), args.kind, args.entity, args.task,
+        args.files, name=args.name or None, comment=args.comment,
+    )
+    return {"result": result.to_dict()}
+
+
+def cmd_refs(root, args):
+    from .ingest import add_refs, delete_ref, list_refs
+
+    project = get_project(args.project, root)
+    if args.add:
+        return {"added": add_refs(project, args.add)}
+    if args.delete:
+        delete_ref(project, args.delete)
+        return {"deleted": args.delete}
+    return {"refs": list_refs(project)}
+
+
+def cmd_trash(root, args):
+    project = get_project(args.project, root)
+    if args.empty:
+        return {"purged": project.empty_trash(args.days)}
+    trash = project.trash_dir()
+    entries = sorted(os.listdir(trash)) if os.path.isdir(trash) else []
+    return {"trash": entries}
+
+
+def cmd_jobs(root, args):
+    project = get_project(args.project, root)
+    if args.cancel:
+        project.db.cancel_job(args.cancel)
+        return {"cancelled": args.cancel}
+    return {"jobs": project.db.list_jobs(limit=args.limit)}
+
+
+def cmd_render(root, args):
+    from .render import submit_render
+
+    result = submit_render(
+        get_project(args.project, root), args.kind, args.entity, args.task,
+        args.scene_version, args.rop,
+        frame_start=args.start, frame_end=args.end, step=args.step,
+    )
+    return {"submitted": result}
+
+
+def cmd_worker(root, args):
+    from .worker import run_forever, run_once
+
+    if args.once:
+        executed = run_once(root, args.project or None)
+        return {"executed": executed}
+    run_forever(root, args.project or None, poll_seconds=args.poll)
+    return {"stopped": True}
+
+
+def cmd_assemble(root, args):
+    from .assembly import publish_assembly
+
+    result = publish_assembly(
+        get_project(args.project, root), args.entity, args.task,
+        kind=args.kind, comment=args.comment,
+    )
+    return {"assembly": result}
+
+
+def cmd_backup(root, args):
+    """Consistent SQLite backups of every project DB + the registry."""
+    import sqlite3
+
+    stamp = utc_now().replace(":", "").replace("-", "")
+    target_dir = os.path.join(root, "backups", stamp)
+    os.makedirs(target_dir, exist_ok=True)
+    saved = []
+    for info in list_projects(root):
+        source = os.path.join(info["path"], config.PROJECT_DB)
+        if not os.path.isfile(source):
+            continue
+        target = os.path.join(target_dir, "%s.db" % info["name"])
+        with sqlite3.connect(source) as src, sqlite3.connect(target) as dst:
+            src.backup(dst)
+        saved.append(target)
+    registry = os.path.join(root, config.REGISTRY_FILE)
+    if os.path.isfile(registry):
+        import shutil
+
+        shutil.copyfile(registry, os.path.join(target_dir, config.REGISTRY_FILE))
+        saved.append(os.path.join(target_dir, config.REGISTRY_FILE))
+    return {"backup_dir": target_dir, "files": saved}
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog="fivehub", description=__doc__)
     parser.add_argument("--hub", help="hub root override (defaults to $FIVEHUB_ROOT)")
@@ -236,11 +359,29 @@ def build_parser():
     )
     create.set_defaults(func=cmd_project_create)
 
+    def _entity_flags(parser_):
+        parser_.add_argument("--sequence", default="")
+        parser_.add_argument("--frame-start", dest="frame_start", type=int, default=None)
+        parser_.add_argument("--frame-end", dest="frame_end", type=int, default=None)
+        parser_.add_argument("--fps", type=float, default=None)
+        parser_.add_argument("--res-x", dest="res_x", type=int, default=None)
+        parser_.add_argument("--res-y", dest="res_y", type=int, default=None)
+
     entity = commands.add_parser("entity-create", help="create an asset or shot")
     entity.add_argument("project")
     entity.add_argument("kind", choices=config.KINDS)
     entity.add_argument("name")
+    _entity_flags(entity)
     entity.set_defaults(func=cmd_entity_create)
+
+    entity_update = commands.add_parser(
+        "entity-update", help="edit shot metadata (sequence, range, fps, res)"
+    )
+    entity_update.add_argument("project")
+    entity_update.add_argument("kind", choices=config.KINDS)
+    entity_update.add_argument("name")
+    _entity_flags(entity_update)
+    entity_update.set_defaults(func=cmd_entity_update)
 
     task = commands.add_parser("task-create", help="create a task on an entity")
     task.add_argument("project")
@@ -348,6 +489,68 @@ def build_parser():
     publish_comment.add_argument("version", type=int)
     publish_comment.add_argument("--comment", default="")
     publish_comment.set_defaults(func=cmd_publish_comment)
+
+    ingest = commands.add_parser(
+        "ingest", help="publish external files (fbx/abc/usd/textures/...) into a task"
+    )
+    ingest.add_argument("project")
+    ingest.add_argument("kind", choices=config.KINDS)
+    ingest.add_argument("entity")
+    ingest.add_argument("task")
+    ingest.add_argument("files", nargs="+")
+    ingest.add_argument("--name", default="")
+    ingest.add_argument("--comment", default="")
+    ingest.set_defaults(func=cmd_ingest)
+
+    refs = commands.add_parser("refs", help="project reference material gallery")
+    refs.add_argument("project")
+    refs.add_argument("--add", nargs="+", default=None, help="copy files into refs/")
+    refs.add_argument("--delete", default="", help="move a ref to the trash")
+    refs.set_defaults(func=cmd_refs)
+
+    trash = commands.add_parser("trash", help="list or purge the project trash")
+    trash.add_argument("project")
+    trash.add_argument("--empty", action="store_true")
+    trash.add_argument("--days", type=int, default=0)
+    trash.set_defaults(func=cmd_trash)
+
+    jobs = commands.add_parser("jobs", help="list or cancel project jobs")
+    jobs.add_argument("project")
+    jobs.add_argument("--limit", type=int, default=50)
+    jobs.add_argument("--cancel", default="", help="job id to cancel (if still queued)")
+    jobs.set_defaults(func=cmd_jobs)
+
+    render = commands.add_parser("render", help="queue a render of a saved scene")
+    render.add_argument("project")
+    render.add_argument("kind", choices=config.KINDS)
+    render.add_argument("entity")
+    render.add_argument("task")
+    render.add_argument("scene_version", type=int)
+    render.add_argument("rop", help="ROP node path, e.g. /out/mantra1")
+    render.add_argument("--start", type=int, default=None)
+    render.add_argument("--end", type=int, default=None)
+    render.add_argument("--step", type=int, default=1)
+    render.set_defaults(func=cmd_render)
+
+    worker = commands.add_parser("worker", help="run the job worker (renders, encodes)")
+    worker.add_argument("--project", default="")
+    worker.add_argument("--once", action="store_true")
+    worker.add_argument("--poll", type=int, default=5)
+    worker.set_defaults(func=cmd_worker)
+
+    assemble = commands.add_parser(
+        "assemble", help="publish a shot assembly from tracked USD dependencies"
+    )
+    assemble.add_argument("project")
+    assemble.add_argument("entity")
+    assemble.add_argument("task")
+    assemble.add_argument("--kind", choices=config.KINDS, default="shot")
+    assemble.add_argument("--comment", default="")
+    assemble.set_defaults(func=cmd_assemble)
+
+    commands.add_parser(
+        "backup", help="back up every project database and the registry"
+    ).set_defaults(func=cmd_backup)
     return parser
 
 

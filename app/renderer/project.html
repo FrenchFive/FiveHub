@@ -11,6 +11,7 @@
   <div class="page">
     <header class="bar">
       <div class="brand">FIVEHUB</div>
+      <input type="text" id="search" placeholder="Search assets & shots" style="flex:1; max-width: 320px" />
       <div class="spacer"></div>
       <div class="label" id="counts"></div>
     </header>
@@ -33,6 +34,19 @@
             <div id="shots" class="entity-list"></div>
           </section>
         </div>
+        <section>
+          <div class="section-head">
+            <div class="label">REFERENCES</div>
+            <button class="btn round" id="add-refs" title="Add reference images" aria-label="Add references">+</button>
+          </div>
+          <div id="refs"></div>
+        </section>
+        <section>
+          <div class="section-head">
+            <div class="label">JOBS — RENDERS & ENCODES</div>
+          </div>
+          <div id="jobs"></div>
+        </section>
         <section>
           <div class="section-head">
             <div class="label">ACTIVITY — THIS PROJECT ONLY</div>

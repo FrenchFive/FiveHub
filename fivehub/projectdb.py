@@ -1,34 +1,60 @@
 """Per-project database.
 
-Every project owns one SQLite file (``project.db``) holding its entities
-(assets and shots), their tasks, the versioned work scenes and the publish
-history — including blocked publish attempts (``passed = 0``, no version).
-Connections are opened per operation with foreign keys enabled.
+Every project owns one SQLite file (``project.db``). Built for a shared
+server with several artists writing at once:
+
+- connections are per-operation with a busy timeout and retry-on-locked,
+  DELETE journal mode (safe on NFS/SMB — WAL is not),
+- version numbers are **claimed atomically in the database first** (a
+  pending row guarded by a UNIQUE constraint), so two artists can never
+  produce the same scene or publish version and overwrite each other,
+- rows are soft-deleted (``deleted_at``) — version numbers are never
+  reused and history survives deletion,
+- ``PRAGMA user_version`` tracks the schema; older databases are migrated
+  in place on open.
+
+All paths stored here are project-relative with forward slashes, so a hub
+shared between Linux, macOS and Windows keeps working; ``project.Project``
+translates to absolute paths at its boundary.
 """
 
+import json
 import os
 import sqlite3
+import time
 import uuid
 from contextlib import contextmanager
 
 from .report import utc_now
+
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS entity (
     id          TEXT PRIMARY KEY,
     kind        TEXT NOT NULL CHECK (kind IN ('asset', 'shot')),
     name        TEXT NOT NULL,
-    created_at  TEXT NOT NULL,
-    UNIQUE (kind, name)
+    sequence    TEXT NOT NULL DEFAULT '',
+    frame_start INTEGER,
+    frame_end   INTEGER,
+    fps         REAL,
+    res_x       INTEGER,
+    res_y       INTEGER,
+    deleted_at  TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_entity_alive
+    ON entity (kind, name) WHERE deleted_at = '';
 
 CREATE TABLE IF NOT EXISTS task (
     id          TEXT PRIMARY KEY,
     entity_id   TEXT NOT NULL REFERENCES entity(id) ON DELETE CASCADE,
     name        TEXT NOT NULL,
-    created_at  TEXT NOT NULL,
-    UNIQUE (entity_id, name)
+    deleted_at  TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_task_alive
+    ON task (entity_id, name) WHERE deleted_at = '';
 
 CREATE TABLE IF NOT EXISTS scene (
     id          TEXT PRIMARY KEY,
@@ -37,6 +63,8 @@ CREATE TABLE IF NOT EXISTS scene (
     file        TEXT NOT NULL,
     notes       TEXT NOT NULL DEFAULT '',
     user        TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'complete',
+    deleted_at  TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL,
     UNIQUE (task_id, version)
 );
@@ -56,10 +84,70 @@ CREATE TABLE IF NOT EXISTS publish (
     thumbnail   TEXT NOT NULL DEFAULT '',
     comment     TEXT NOT NULL DEFAULT '',
     user        TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'complete',
+    deleted_at  TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL,
     UNIQUE (task_id, format, version)
 );
+
+CREATE TABLE IF NOT EXISTS presence (
+    user        TEXT PRIMARY KEY,
+    task_id     TEXT NOT NULL,
+    scene_version INTEGER,
+    host        TEXT NOT NULL DEFAULT '',
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS job (
+    id          TEXT PRIMARY KEY,
+    type        TEXT NOT NULL,
+    payload     TEXT NOT NULL DEFAULT '{}',
+    status      TEXT NOT NULL DEFAULT 'queued',
+    worker      TEXT NOT NULL DEFAULT '',
+    log         TEXT NOT NULL DEFAULT '',
+    user        TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    started_at  TEXT NOT NULL DEFAULT '',
+    finished_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS dependency (
+    id          TEXT PRIMARY KEY,
+    task_id     TEXT NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+    src_task_id TEXT NOT NULL,
+    src_format  TEXT NOT NULL,
+    src_name    TEXT NOT NULL,
+    src_version INTEGER,
+    user        TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    UNIQUE (task_id, src_task_id, src_format, src_name)
+);
 """
+
+# Columns added since schema v1, used to migrate old databases in place.
+_V2_NEW_COLUMNS = {
+    "entity": (
+        ("sequence", "TEXT NOT NULL DEFAULT ''"),
+        ("frame_start", "INTEGER"),
+        ("frame_end", "INTEGER"),
+        ("fps", "REAL"),
+        ("res_x", "INTEGER"),
+        ("res_y", "INTEGER"),
+        ("deleted_at", "TEXT NOT NULL DEFAULT ''"),
+    ),
+    "task": (("deleted_at", "TEXT NOT NULL DEFAULT ''"),),
+    "scene": (
+        ("status", "TEXT NOT NULL DEFAULT 'complete'"),
+        ("deleted_at", "TEXT NOT NULL DEFAULT ''"),
+    ),
+    "publish": (
+        ("status", "TEXT NOT NULL DEFAULT 'complete'"),
+        ("deleted_at", "TEXT NOT NULL DEFAULT ''"),
+    ),
+}
+
+LOCK_RETRIES = 6
+LOCK_BASE_DELAY = 0.25
 
 
 class ProjectDB:
@@ -67,46 +155,108 @@ class ProjectDB:
         self.path = path
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with self._connect() as conn:
-            conn.executescript(SCHEMA)
+            self._migrate(conn)
 
     @contextmanager
     def _connect(self):
-        conn = sqlite3.connect(self.path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
+        conn = None
+        for attempt in range(LOCK_RETRIES):
+            try:
+                conn = sqlite3.connect(self.path, timeout=15)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA busy_timeout = 15000")
+                conn.execute("PRAGMA journal_mode = DELETE")
+                conn.execute("PRAGMA foreign_keys = ON")
+                break
+            except sqlite3.OperationalError:
+                if conn is not None:
+                    conn.close()
+                    conn = None
+                if attempt == LOCK_RETRIES - 1:
+                    raise
+                time.sleep(LOCK_BASE_DELAY * (2 ** attempt))
         try:
             yield conn
             conn.commit()
+        except sqlite3.OperationalError:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 
+    def _migrate(self, conn):
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version >= SCHEMA_VERSION:
+            conn.executescript(SCHEMA)  # new tables may still be missing
+            return
+        if version < 2:
+            # v0 is a fresh file; v1 is the pre-metadata schema. ALTERs are
+            # applied only for columns that do not exist yet.
+            existing_tables = {
+                row["name"]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            for table, columns in _V2_NEW_COLUMNS.items():
+                if table not in existing_tables:
+                    continue
+                present = {
+                    row["name"]
+                    for row in conn.execute("PRAGMA table_info(%s)" % table).fetchall()
+                }
+                for column, declaration in columns:
+                    if column not in present:
+                        conn.execute(
+                            "ALTER TABLE %s ADD COLUMN %s %s"
+                            % (table, column, declaration)
+                        )
+        conn.executescript(SCHEMA)
+        conn.execute("PRAGMA user_version = %d" % SCHEMA_VERSION)
+
     # -- entities --------------------------------------------------------
 
-    def create_entity(self, kind, name):
+    def create_entity(self, kind, name, sequence="", frame_start=None,
+                      frame_end=None, fps=None, res_x=None, res_y=None):
         with self._connect() as conn:
-            existing = conn.execute(
-                "SELECT id FROM entity WHERE kind = ? AND name = ?", (kind, name)
-            ).fetchone()
-            if existing:
+            try:
+                entity_id = str(uuid.uuid4())
+                conn.execute(
+                    "INSERT INTO entity (id, kind, name, sequence, frame_start,"
+                    " frame_end, fps, res_x, res_y, created_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (entity_id, kind, name, sequence or "", frame_start,
+                     frame_end, fps, res_x, res_y, utc_now()),
+                )
+                return entity_id
+            except sqlite3.IntegrityError:
                 raise ValueError("%s %r already exists" % (kind, name))
-            entity_id = str(uuid.uuid4())
+
+    def update_entity(self, entity_id, **fields):
+        allowed = ("sequence", "frame_start", "frame_end", "fps", "res_x", "res_y")
+        updates = {key: fields[key] for key in allowed if key in fields}
+        if not updates:
+            return
+        assignments = ", ".join("%s = ?" % key for key in updates)
+        with self._connect() as conn:
             conn.execute(
-                "INSERT INTO entity (id, kind, name, created_at) VALUES (?, ?, ?, ?)",
-                (entity_id, kind, name, utc_now()),
+                "UPDATE entity SET %s WHERE id = ?" % assignments,
+                (*updates.values(), entity_id),
             )
-            return entity_id
 
     def get_entity(self, kind, name):
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM entity WHERE kind = ? AND name = ?", (kind, name)
+                "SELECT * FROM entity WHERE kind = ? AND name = ? AND deleted_at = ''",
+                (kind, name),
             ).fetchone()
             return dict(row) if row else None
 
     def list_entities(self, kind):
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM entity WHERE kind = ? ORDER BY name COLLATE NOCASE",
+                "SELECT * FROM entity WHERE kind = ? AND deleted_at = ''"
+                " ORDER BY sequence, name COLLATE NOCASE",
                 (kind,),
             ).fetchall()
             return [dict(row) for row in rows]
@@ -115,22 +265,23 @@ class ProjectDB:
 
     def create_task(self, entity_id, name):
         with self._connect() as conn:
-            existing = conn.execute(
-                "SELECT id FROM task WHERE entity_id = ? AND name = ?", (entity_id, name)
-            ).fetchone()
-            if existing:
+            try:
+                task_id = str(uuid.uuid4())
+                conn.execute(
+                    "INSERT INTO task (id, entity_id, name, created_at)"
+                    " VALUES (?, ?, ?, ?)",
+                    (task_id, entity_id, name, utc_now()),
+                )
+                return task_id
+            except sqlite3.IntegrityError:
                 raise ValueError("task %r already exists on this entity" % name)
-            task_id = str(uuid.uuid4())
-            conn.execute(
-                "INSERT INTO task (id, entity_id, name, created_at) VALUES (?, ?, ?, ?)",
-                (task_id, entity_id, name, utc_now()),
-            )
-            return task_id
 
     def get_task(self, entity_id, name):
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM task WHERE entity_id = ? AND name = ?", (entity_id, name)
+                "SELECT * FROM task WHERE entity_id = ? AND name = ?"
+                " AND deleted_at = ''",
+                (entity_id, name),
             ).fetchone()
             return dict(row) if row else None
 
@@ -138,10 +289,12 @@ class ProjectDB:
         """Tasks of an entity with scene/publish counts for browsing."""
         query = """
             SELECT t.*,
-                   (SELECT COUNT(*) FROM scene s WHERE s.task_id = t.id) AS scene_count,
-                   (SELECT COUNT(*) FROM publish p
-                     WHERE p.task_id = t.id AND p.version IS NOT NULL) AS publish_count
-            FROM task t WHERE t.entity_id = ? ORDER BY t.name
+                   (SELECT COUNT(*) FROM scene s WHERE s.task_id = t.id
+                     AND s.status = 'complete' AND s.deleted_at = '') AS scene_count,
+                   (SELECT COUNT(*) FROM publish p WHERE p.task_id = t.id
+                     AND p.version IS NOT NULL AND p.status = 'complete'
+                     AND p.deleted_at = '') AS publish_count
+            FROM task t WHERE t.entity_id = ? AND t.deleted_at = '' ORDER BY t.name
         """
         with self._connect() as conn:
             return [dict(row) for row in conn.execute(query, (entity_id,)).fetchall()]
@@ -149,26 +302,70 @@ class ProjectDB:
     # -- scenes ----------------------------------------------------------
 
     def next_scene_version(self, task_id):
+        """Peek at the next version (claims may still move it forward)."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT MAX(version) AS latest FROM scene WHERE task_id = ?", (task_id,)
+                "SELECT MAX(version) AS latest FROM scene WHERE task_id = ?",
+                (task_id,),
             ).fetchone()
             return (row["latest"] or 0) + 1
 
-    def record_scene(self, task_id, version, file, notes="", user=""):
+    def claim_scene_version(self, task_id, file_for_version, user=""):
+        """Atomically reserve the next scene version.
+
+        ``file_for_version`` is a callable version -> relative file path.
+        The UNIQUE(task_id, version) constraint is the lock: whoever inserts
+        first owns the number; everyone else moves to the next one.
+        """
+        for _ in range(50):
+            version = self.next_scene_version(task_id)
+            try:
+                with self._connect() as conn:
+                    conn.execute(
+                        "INSERT INTO scene (id, task_id, version, file, user,"
+                        " status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+                        (str(uuid.uuid4()), task_id, version,
+                         file_for_version(version), user, utc_now()),
+                    )
+                return version
+            except sqlite3.IntegrityError:
+                continue
+        raise RuntimeError("could not claim a scene version (database contention)")
+
+    def complete_scene(self, task_id, version, notes="", user=""):
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO scene (id, task_id, version, file, notes, user, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (str(uuid.uuid4()), task_id, int(version), file, notes, user, utc_now()),
+                "UPDATE scene SET status = 'complete', notes = ?, user = ?,"
+                " created_at = ? WHERE task_id = ? AND version = ?",
+                (notes or "", user or "", utc_now(), task_id, int(version)),
+            )
+
+    def release_scene(self, task_id, version):
+        """Drop a claim whose save never happened."""
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM scene WHERE task_id = ? AND version = ?"
+                " AND status = 'pending'",
+                (task_id, int(version)),
             )
 
     def list_scenes(self, task_id):
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM scene WHERE task_id = ? ORDER BY version DESC", (task_id,)
+                "SELECT * FROM scene WHERE task_id = ? AND status = 'complete'"
+                " AND deleted_at = '' ORDER BY version DESC",
+                (task_id,),
             ).fetchall()
             return [dict(row) for row in rows]
+
+    def get_scene(self, task_id, version):
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM scene WHERE task_id = ? AND version = ?"
+                " AND status = 'complete' AND deleted_at = ''",
+                (task_id, int(version)),
+            ).fetchone()
+            return dict(row) if row else None
 
     def latest_scene(self, task_id):
         scenes = self.list_scenes(task_id)
@@ -185,25 +382,68 @@ class ProjectDB:
             ).fetchone()
             return (row["latest"] or 0) + 1
 
-    def record_publish(self, task_id, name, format_name, variant, version, report,
-                       path="", report_path="", thumbnail="", comment="", user=""):
+    def claim_publish_version(self, task_id, name, format_name, variant, user=""):
+        """Atomically reserve the next publish version for a task+format."""
+        for _ in range(50):
+            version = self.next_publish_version(task_id, format_name)
+            try:
+                with self._connect() as conn:
+                    conn.execute(
+                        "INSERT INTO publish (id, task_id, name, format, variant,"
+                        " version, user, status, created_at)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+                        (str(uuid.uuid4()), task_id, name, format_name, variant,
+                         version, user, utc_now()),
+                    )
+                return version
+            except sqlite3.IntegrityError:
+                continue
+        raise RuntimeError("could not claim a publish version (database contention)")
+
+    def complete_publish(self, task_id, format_name, version, report,
+                         path="", report_path="", thumbnail="", comment="", user=""):
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO publish (id, task_id, name, format, variant, version, passed,"
-                " errors, warnings, path, report_path, thumbnail, comment, user, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "UPDATE publish SET status = 'complete', passed = ?, errors = ?,"
+                " warnings = ?, path = ?, report_path = ?, thumbnail = ?,"
+                " comment = ?, user = ?, created_at = ?"
+                " WHERE task_id = ? AND format = ? AND version = ?",
                 (
-                    str(uuid.uuid4()), task_id, name, format_name, variant, version,
-                    1 if report.passed else 0, report.error_count, report.warning_count,
-                    path, report_path, thumbnail, comment, user, utc_now(),
+                    1 if report.passed else 0, report.error_count,
+                    report.warning_count, path, report_path, thumbnail,
+                    comment or "", user or "", utc_now(),
+                    task_id, format_name, int(version),
+                ),
+            )
+
+    def release_publish(self, task_id, format_name, version):
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM publish WHERE task_id = ? AND format = ?"
+                " AND version = ? AND status = 'pending'",
+                (task_id, format_name, int(version)),
+            )
+
+    def record_blocked_publish(self, task_id, name, format_name, variant, report,
+                               report_path="", comment="", user=""):
+        """A publish attempt that failed validation: no version, logged."""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO publish (id, task_id, name, format, variant, version,"
+                " passed, errors, warnings, report_path, comment, user, created_at)"
+                " VALUES (?, ?, ?, ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(uuid.uuid4()), task_id, name, format_name, variant,
+                    report.error_count, report.warning_count, report_path,
+                    comment or "", user or "", utc_now(),
                 ),
             )
 
     def list_publishes(self, task_id):
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM publish WHERE task_id = ?"
-                " ORDER BY created_at DESC, rowid DESC",
+                "SELECT * FROM publish WHERE task_id = ? AND status = 'complete'"
+                " AND deleted_at = '' ORDER BY created_at DESC, rowid DESC",
                 (task_id,),
             ).fetchall()
             return [dict(row) for row in rows]
@@ -211,7 +451,8 @@ class ProjectDB:
     def get_publish(self, task_id, format_name, version):
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM publish WHERE task_id = ? AND format = ? AND version = ?",
+                "SELECT * FROM publish WHERE task_id = ? AND format = ?"
+                " AND version = ? AND status = 'complete' AND deleted_at = ''",
                 (task_id, format_name, version),
             ).fetchone()
             return dict(row) if row else None
@@ -221,24 +462,27 @@ class ProjectDB:
             if format_name:
                 row = conn.execute(
                     "SELECT * FROM publish WHERE task_id = ? AND format = ?"
-                    " AND version IS NOT NULL ORDER BY version DESC LIMIT 1",
+                    " AND version IS NOT NULL AND status = 'complete'"
+                    " AND deleted_at = '' ORDER BY version DESC LIMIT 1",
                     (task_id, format_name),
                 ).fetchone()
             else:
                 row = conn.execute(
                     "SELECT * FROM publish WHERE task_id = ? AND version IS NOT NULL"
+                    " AND status = 'complete' AND deleted_at = ''"
                     " ORDER BY created_at DESC LIMIT 1",
                     (task_id,),
                 ).fetchone()
             return dict(row) if row else None
 
     def known_variants(self, task_id, format_name, name):
-        """Map variant -> latest version for one publish name in a task."""
+        """Map variant -> latest live version for one publish name."""
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT variant, MAX(version) AS version FROM publish"
-                " WHERE task_id = ? AND format = ? AND name = ? AND version IS NOT NULL"
-                " GROUP BY variant",
+                " WHERE task_id = ? AND format = ? AND name = ?"
+                " AND version IS NOT NULL AND status = 'complete'"
+                " AND deleted_at = '' GROUP BY variant",
                 (task_id, format_name, name),
             ).fetchall()
             return {row["variant"]: row["version"] for row in rows}
@@ -250,6 +494,7 @@ class ProjectDB:
             FROM publish p
             JOIN task t ON t.id = p.task_id
             JOIN entity e ON e.id = t.entity_id
+            WHERE p.status = 'complete' AND p.deleted_at = ''
             ORDER BY p.created_at DESC, p.rowid DESC LIMIT ?
         """
         with self._connect() as conn:
@@ -262,12 +507,13 @@ class ProjectDB:
             FROM scene s
             JOIN task t ON t.id = s.task_id
             JOIN entity e ON e.id = t.entity_id
+            WHERE s.status = 'complete' AND s.deleted_at = ''
             ORDER BY s.created_at DESC, s.rowid DESC LIMIT ?
         """
         with self._connect() as conn:
             return [dict(row) for row in conn.execute(query, (int(limit),)).fetchall()]
 
-    # -- edits & deletions ----------------------------------------------
+    # -- edits & soft deletion ------------------------------------------
 
     def update_scene_notes(self, task_id, version, notes):
         with self._connect() as conn:
@@ -285,45 +531,210 @@ class ProjectDB:
             )
 
     def delete_scene(self, task_id, version):
+        row = self.get_scene(task_id, version)
+        if row is None:
+            raise ValueError("no scene v%03d on that task" % int(version))
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM scene WHERE task_id = ? AND version = ?",
-                (task_id, int(version)),
-            ).fetchone()
-            if row is None:
-                raise ValueError("no scene v%03d on that task" % int(version))
-            conn.execute("DELETE FROM scene WHERE id = ?", (row["id"],))
-            return dict(row)
+            conn.execute(
+                "UPDATE scene SET deleted_at = ? WHERE id = ?", (utc_now(), row["id"])
+            )
+        return row
 
     def delete_publish(self, task_id, format_name, version):
+        row = self.get_publish(task_id, format_name, version)
+        if row is None:
+            raise ValueError(
+                "no %s publish v%03d on that task" % (format_name, int(version))
+            )
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM publish WHERE task_id = ? AND format = ? AND version = ?",
-                (task_id, format_name, int(version)),
-            ).fetchone()
-            if row is None:
-                raise ValueError(
-                    "no %s publish v%03d on that task" % (format_name, int(version))
-                )
-            conn.execute("DELETE FROM publish WHERE id = ?", (row["id"],))
-            return dict(row)
+            conn.execute(
+                "UPDATE publish SET deleted_at = ? WHERE id = ?", (utc_now(), row["id"])
+            )
+        return row
 
     def delete_task(self, task_id):
         with self._connect() as conn:
-            conn.execute("DELETE FROM task WHERE id = ?", (task_id,))
+            conn.execute(
+                "UPDATE task SET deleted_at = ? WHERE id = ?", (utc_now(), task_id)
+            )
 
     def delete_entity(self, entity_id):
         with self._connect() as conn:
-            conn.execute("DELETE FROM entity WHERE id = ?", (entity_id,))
+            stamp = utc_now()
+            conn.execute(
+                "UPDATE entity SET deleted_at = ? WHERE id = ?", (stamp, entity_id)
+            )
+            conn.execute(
+                "UPDATE task SET deleted_at = ? WHERE entity_id = ?"
+                " AND deleted_at = ''",
+                (stamp, entity_id),
+            )
+
+    # -- presence --------------------------------------------------------
+
+    def set_presence(self, user, task_id, scene_version=None, host=""):
+        if not user:
+            return
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO presence (user, task_id, scene_version, host, updated_at)"
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(user) DO UPDATE SET task_id = excluded.task_id,"
+                " scene_version = excluded.scene_version, host = excluded.host,"
+                " updated_at = excluded.updated_at",
+                (user, task_id, scene_version, host, utc_now()),
+            )
+
+    def clear_presence(self, user):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM presence WHERE user = ?", (user,))
+
+    def list_presence(self, max_age_hours=8):
+        """Fresh presence rows with entity/task context."""
+        query = """
+            SELECT pr.*, t.name AS task, e.name AS entity, e.kind AS kind
+            FROM presence pr
+            JOIN task t ON t.id = pr.task_id
+            JOIN entity e ON e.id = t.entity_id
+        """
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with self._connect() as conn:
+            rows = [dict(row) for row in conn.execute(query).fetchall()]
+        return [row for row in rows if row["updated_at"] >= cutoff]
+
+    # -- jobs ------------------------------------------------------------
+
+    def enqueue_job(self, job_type, payload, user=""):
+        job_id = str(uuid.uuid4())
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO job (id, type, payload, user, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (job_id, job_type, json.dumps(payload), user, utc_now()),
+            )
+        return job_id
+
+    def claim_job(self, worker):
+        """Atomically claim the oldest queued job (BEGIN IMMEDIATE)."""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM job WHERE status = 'queued'"
+                " ORDER BY created_at, rowid LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                "UPDATE job SET status = 'running', worker = ?, started_at = ?"
+                " WHERE id = ?",
+                (worker, utc_now(), row["id"]),
+            )
+            job = dict(row)
+        job["payload"] = json.loads(job["payload"] or "{}")
+        return job
+
+    def finish_job(self, job_id, status, log=""):
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE job SET status = ?, log = ?, finished_at = ? WHERE id = ?",
+                (status, (log or "")[-20000:], utc_now(), job_id),
+            )
+
+    def cancel_job(self, job_id):
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE job SET status = 'cancelled', finished_at = ?"
+                " WHERE id = ? AND status = 'queued'",
+                (utc_now(), job_id),
+            )
+
+    def list_jobs(self, limit=50):
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM job ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+            jobs = [dict(row) for row in rows]
+        for job in jobs:
+            try:
+                job["payload"] = json.loads(job["payload"] or "{}")
+            except ValueError:
+                job["payload"] = {}
+        return jobs
+
+    # -- dependencies ----------------------------------------------------
+
+    def record_dependency(self, task_id, src_task_id, src_format, src_name,
+                          src_version=None, user=""):
+        """Remember that a task imported a publish. Re-importing updates
+        the pin (src_version None = follows latest)."""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO dependency (id, task_id, src_task_id, src_format,"
+                " src_name, src_version, user, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(task_id, src_task_id, src_format, src_name)"
+                " DO UPDATE SET src_version = excluded.src_version,"
+                " user = excluded.user, created_at = excluded.created_at",
+                (str(uuid.uuid4()), task_id, src_task_id, src_format, src_name,
+                 src_version, user, utc_now()),
+            )
+
+    def dependencies_of(self, task_id):
+        """What this task uses, with source context and the latest version."""
+        query = """
+            SELECT d.*, t.name AS src_task, e.name AS src_entity, e.kind AS src_kind,
+                   (SELECT MAX(version) FROM publish p WHERE p.task_id = d.src_task_id
+                     AND p.format = d.src_format AND p.name = d.src_name
+                     AND p.version IS NOT NULL AND p.status = 'complete'
+                     AND p.deleted_at = '') AS latest_version
+            FROM dependency d
+            JOIN task t ON t.id = d.src_task_id
+            JOIN entity e ON e.id = t.entity_id
+            WHERE d.task_id = ?
+            ORDER BY e.name, t.name
+        """
+        with self._connect() as conn:
+            return [dict(row) for row in conn.execute(query, (task_id,)).fetchall()]
+
+    def used_by(self, task_id):
+        """Which tasks import publishes of this task."""
+        query = """
+            SELECT d.*, t.name AS consumer_task, e.name AS consumer_entity,
+                   e.kind AS consumer_kind
+            FROM dependency d
+            JOIN task t ON t.id = d.task_id
+            JOIN entity e ON e.id = t.entity_id
+            WHERE d.src_task_id = ?
+            ORDER BY e.name, t.name
+        """
+        with self._connect() as conn:
+            return [dict(row) for row in conn.execute(query, (task_id,)).fetchall()]
+
+    def task_context(self, task_id):
+        """(kind, entity, task) names for a task id, or None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT e.kind AS kind, e.name AS entity, t.name AS task"
+                " FROM task t JOIN entity e ON e.id = t.entity_id WHERE t.id = ?",
+                (task_id,),
+            ).fetchone()
+            return dict(row) if row else None
 
     def counts(self):
         with self._connect() as conn:
             entities = conn.execute(
-                "SELECT kind, COUNT(*) AS n FROM entity GROUP BY kind"
+                "SELECT kind, COUNT(*) AS n FROM entity WHERE deleted_at = ''"
+                " GROUP BY kind"
             ).fetchall()
             by_kind = {row["kind"]: row["n"] for row in entities}
             publishes = conn.execute(
                 "SELECT COUNT(*) AS n FROM publish WHERE version IS NOT NULL"
+                " AND status = 'complete' AND deleted_at = ''"
             ).fetchone()["n"]
             return {
                 "assets": by_kind.get("asset", 0),
