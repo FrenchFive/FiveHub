@@ -68,7 +68,20 @@ def install(prefs_dir):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prefs", help="Houdini preferences directory (e.g. ~/houdini20.5)")
+    parser.add_argument("--auto", action="store_true",
+                        help="no prompts: install into every Houdini prefs dir found")
     args = parser.parse_args(argv)
+
+    if args.auto:
+        candidates = candidate_pref_dirs()
+        if not candidates:
+            print("No Houdini preferences directory found — launch Houdini once, "
+                  "then rerun, or use --prefs <path>.")
+            return 1
+        for prefs in candidates:
+            print("Installed package: %s" % install(prefs))
+        print("FIVEHUB -> %s" % REPO)
+        return 0
 
     if args.prefs:
         prefs = os.path.expanduser(args.prefs)
@@ -97,7 +110,8 @@ def main(argv=None):
     print("Installed package: %s" % target)
     print("FIVEHUB -> %s" % REPO)
     print("Launch Houdini — the FIVE HUB menu appears in the main menu bar.")
-    print("To install the standalone app:  cd %s && npm install" % os.path.join(REPO, "app"))
+    print("For everything else in one step (app, fonts, splash), run the")
+    print("installer at the repo root: install.bat (Windows) / ./install.sh")
     return 0
 
 
