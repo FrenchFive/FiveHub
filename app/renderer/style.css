@@ -755,6 +755,11 @@ tbody tr:hover {
   border-color: var(--ink);
 }
 
+.chip.all {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
 .chip.add {
   background: transparent;
   border: 1px dashed var(--line-strong);
@@ -838,6 +843,7 @@ tbody tr:hover {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  cursor: pointer; /* the block opens the asset/shot page */
   transition: transform var(--slow) var(--spring),
     box-shadow var(--slow) var(--spring);
 }

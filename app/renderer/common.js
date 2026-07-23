@@ -196,6 +196,106 @@ function autoRefresh(reload, ms) {
   }, ms || 30000);
 }
 
+// -- shared sheets (project + entity pages) ------------------------------
+
+async function taskSheetShared(projectName, kind, entityName, defaultTasks, reload) {
+  const values = await openSheet({
+    title: `New task on ${entityName}`,
+    submitLabel: "CREATE",
+    build(body) {
+      const nameField = sheetField(body, "TASK NAME");
+      const nameInput = el("input");
+      nameInput.type = "text";
+      nameInput.placeholder = "e.g. modeling";
+      nameField.appendChild(nameInput);
+
+      const suggestField = sheetField(body, "SUGGESTIONS");
+      const chips = el("div", "chips");
+      for (const task of defaultTasks) {
+        const chip = el("button", "chip", task);
+        chip.addEventListener("click", () => {
+          nameInput.value = task;
+          nameInput.focus();
+        });
+        chips.appendChild(chip);
+      }
+      suggestField.appendChild(chips);
+
+      return () => {
+        const name = nameInput.value.trim();
+        return name ? { name } : null;
+      };
+    },
+  });
+  if (!values) return;
+  try {
+    await window.fivehub.taskCreate(projectName, kind, entityName, values.name);
+    toast("TASK CREATED");
+    await reload();
+  } catch (error) {
+    toast(cliErrorText(error).toUpperCase());
+  }
+}
+
+async function editEntitySheetShared(projectName, kind, entity, reload) {
+  const values = await openSheet({
+    title: "Edit " + entity.name,
+    submitLabel: "SAVE",
+    build(body) {
+      const sequenceField = sheetField(body, "SEQUENCE");
+      const sequenceInput = el("input");
+      sequenceInput.type = "text";
+      sequenceInput.value = entity.sequence || "";
+      sequenceField.appendChild(sequenceInput);
+
+      const rangeField = sheetField(body, "FRAME RANGE");
+      const rangeRow = el("div", "form-row");
+      const startInput = el("input");
+      startInput.type = "text";
+      startInput.value = entity.frame_start ?? "";
+      const endInput = el("input");
+      endInput.type = "text";
+      endInput.value = entity.frame_end ?? "";
+      rangeRow.appendChild(startInput);
+      rangeRow.appendChild(endInput);
+      rangeField.appendChild(rangeRow);
+
+      const formatField = sheetField(body, "FPS / RESOLUTION");
+      const formatRow = el("div", "form-row");
+      const fpsInput = el("input");
+      fpsInput.type = "text";
+      fpsInput.value = entity.fps ?? "";
+      const resXInput = el("input");
+      resXInput.type = "text";
+      resXInput.value = entity.res_x ?? "";
+      const resYInput = el("input");
+      resYInput.type = "text";
+      resYInput.value = entity.res_y ?? "";
+      formatRow.appendChild(fpsInput);
+      formatRow.appendChild(resXInput);
+      formatRow.appendChild(resYInput);
+      formatField.appendChild(formatRow);
+
+      return () => ({
+        sequence: sequenceInput.value.trim(),
+        frame_start: startInput.value.trim(),
+        frame_end: endInput.value.trim(),
+        fps: fpsInput.value.trim(),
+        res_x: resXInput.value.trim(),
+        res_y: resYInput.value.trim(),
+      });
+    },
+  });
+  if (!values) return;
+  try {
+    await window.fivehub.entityUpdate(projectName, kind, entity.name, values);
+    toast("METADATA SAVED");
+    await reload();
+  } catch (error) {
+    toast(cliErrorText(error).toUpperCase());
+  }
+}
+
 // A ⋯ button. `itemsFactory` is called on open so labels/actions stay fresh.
 function dotsButton(itemsFactory) {
   const button = el("button", "btn icon dots", "⋯");

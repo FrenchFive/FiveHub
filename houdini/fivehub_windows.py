@@ -26,11 +26,15 @@ from fivehub.project import get_project, list_projects
 # Mainly white, black ink, rounded — red appears only when a publish is
 # blocked (the failed report heading). Matches the hub app's design system.
 STYLE = """
-QDialog { background: #f5f5f7; }
 QWidget { background: transparent; color: #0b0b0c;
     font-family: "Satoshi", "SF Pro Text", "Segoe UI", "Helvetica Neue",
     Arial, sans-serif;
     font-size: 12px; }
+/* The ID selector outranks every type rule (and Houdini's own dark
+   stylesheet), so the dialog base is ALWAYS the light wash — without it
+   the QWidget rule above turns the dialog transparent and Houdini's
+   near-black shell bleeds through behind ink-colored text. */
+QDialog#fivehubDialog { background: #f5f5f7; }
 QLabel { background: transparent; }
 QLabel#heading { font-family: "Satoshi Black", "Satoshi", sans-serif;
     font-size: 21px; font-weight: 900; }
@@ -203,6 +207,7 @@ class ContextWidget(QtWidgets.QWidget):
 class _BaseDialog(QtWidgets.QDialog):
     def __init__(self, heading, parent=None, heading_object="heading"):
         super(_BaseDialog, self).__init__(parent or hou.qt.mainWindow())
+        self.setObjectName("fivehubDialog")
         self.setStyleSheet(STYLE)
         self.setWindowTitle("FIVE HUB")
         self.layout_ = QtWidgets.QVBoxLayout(self)
