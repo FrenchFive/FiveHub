@@ -499,6 +499,91 @@ class PublishTests(unittest.TestCase):
         self.assertIsNone(result.version)
 
 
+class EditDeleteTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.hub = os.path.join(self.tmp.name, "hub")
+        self.project = create_project("Ops", hub_root=self.hub)
+        self.project.create_entity("asset", "Crate")
+        self.project.create_task("asset", "Crate", "modeling")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _scene(self, notes=""):
+        path, version = self.project.next_scene_path("asset", "Crate", "modeling")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as handle:
+            handle.write("hip")
+        self.project.register_scene("asset", "Crate", "modeling", version, path, notes)
+        return path, version
+
+    def test_scene_edit_and_delete(self):
+        path, version = self._scene("first")
+        self.project.set_scene_notes("asset", "Crate", "modeling", version, "better notes")
+        self.assertEqual(
+            self.project.scenes("asset", "Crate", "modeling")[0]["notes"], "better notes"
+        )
+        self.project.delete_scene("asset", "Crate", "modeling", version)
+        self.assertFalse(os.path.exists(path))
+        self.assertEqual(self.project.scenes("asset", "Crate", "modeling"), [])
+        with self.assertRaises(ValueError):
+            self.project.delete_scene("asset", "Crate", "modeling", version)
+
+    def test_publish_delete_rebuilds_usd_root(self):
+        publish_usd(self.project, "asset", "Crate", "modeling",
+                    usd_request(self.tmp.name, name="Crate"))
+        publish_usd(self.project, "asset", "Crate", "modeling",
+                    usd_request(self.tmp.name, name="Crate", variant="damaged"))
+        publish_root = self.project.publish_dir("asset", "Crate", "modeling", "usd")
+        root_layer = os.path.join(publish_root, "Crate.usda")
+
+        self.project.set_publish_comment("asset", "Crate", "modeling", "usd", 2, "edited")
+        publishes = self.project.publishes("asset", "Crate", "modeling")
+        self.assertEqual(publishes[0]["comment"], "edited")
+
+        self.project.delete_publish("asset", "Crate", "modeling", "usd", 2)
+        self.assertFalse(os.path.exists(os.path.join(publish_root, "v002")))
+        with open(root_layer) as handle:
+            content = handle.read()
+        self.assertIn("@./v001/Crate.payload.usda@", content)
+        self.assertNotIn("v002", content)
+
+        self.project.delete_publish("asset", "Crate", "modeling", "usd", 1)
+        self.assertFalse(os.path.exists(root_layer))
+
+    def test_task_and_entity_delete(self):
+        self._scene()
+        task_dir = self.project.task_dir("asset", "Crate", "modeling")
+        self.project.delete_task("asset", "Crate", "modeling")
+        self.assertFalse(os.path.exists(task_dir))
+        self.assertEqual(self.project.tasks("asset", "Crate"), [])
+
+        entity_dir = self.project.entity_dir("asset", "Crate")
+        self.project.delete_entity("asset", "Crate")
+        self.assertFalse(os.path.exists(entity_dir))
+        self.assertIsNone(self.project.db.get_entity("asset", "Crate"))
+
+    def test_remove_project(self):
+        from fivehub.project import remove_project
+
+        shared = os.path.join(self.tmp.name, "shared")
+        os.makedirs(shared)
+        external = create_project("Linked", hub_root=self.hub, location=shared)
+        result = remove_project("Linked", self.hub)
+        self.assertTrue(result["external"])
+        self.assertFalse(result["deleted_files"])
+        self.assertTrue(os.path.isdir(external.root))  # files kept
+        self.assertNotIn("Linked", [p["name"] for p in list_projects(self.hub)])
+
+        local_root = self.project.root
+        result = remove_project("Ops", self.hub)
+        self.assertTrue(result["deleted_files"])  # local removal deletes files
+        self.assertFalse(os.path.exists(local_root))
+        with self.assertRaises(ValueError):
+            remove_project("Ops", self.hub)
+
+
 class DemoTests(unittest.TestCase):
     def test_demo_end_to_end(self):
         with tempfile.TemporaryDirectory() as tmp:

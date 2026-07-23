@@ -105,7 +105,34 @@ async function taskSheet(kind, entityName) {
 
 function entityBlock(kind, entity) {
   const block = el("div", "entity-block");
-  block.appendChild(el("div", "name", entity.name));
+  const head = el("div", "entity-head");
+  head.appendChild(el("div", "name", entity.name));
+  head.appendChild(
+    dotsButton(() => [
+      { label: "New task", action: () => taskSheet(kind, entity.name) },
+      "-",
+      {
+        label: "Delete " + kind,
+        danger: true,
+        action: async () => {
+          const ok = await confirmSheet(
+            `Delete ${kind} ${entity.name}?`,
+            "All of its tasks, scene versions and publishes are removed. This cannot be undone.",
+            "DELETE " + kind.toUpperCase(),
+          );
+          if (!ok) return;
+          try {
+            await window.fivehub.entityDelete(projectName, kind, entity.name);
+            toast(kind.toUpperCase() + " DELETED");
+            load();
+          } catch (error) {
+            toast(cliErrorText(error).toUpperCase());
+          }
+        },
+      },
+    ]),
+  );
+  block.appendChild(head);
 
   const chips = el("div", "chips");
   for (const task of entity.tasks) {

@@ -8,6 +8,7 @@ reaches disk or the database is a valid USD identifier.
 import json
 import os
 import shutil
+from types import SimpleNamespace
 
 from . import config, naming
 from .projectdb import ProjectDB
@@ -136,6 +137,93 @@ class Project:
     def publishes(self, kind, entity, task):
         return self.db.list_publishes(self._task_record(kind, entity, task)["id"])
 
+    # -- edits & deletions -----------------------------------------------
+
+    def _inside_root(self, path):
+        target = os.path.abspath(path)
+        root = os.path.abspath(self.root)
+        try:
+            return os.path.commonpath([root, target]) == root
+        except ValueError:
+            return False
+
+    def _remove_path(self, path):
+        """Delete a file or tree, but only ever inside this project."""
+        if not path or not self._inside_root(path):
+            return
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+        elif os.path.isfile(path):
+            os.remove(path)
+
+    def set_scene_notes(self, kind, entity, task, version, notes):
+        task_record = self._task_record(kind, entity, task)
+        self.db.update_scene_notes(task_record["id"], version, notes)
+
+    def set_publish_comment(self, kind, entity, task, format_name, version, comment):
+        task_record = self._task_record(kind, entity, task)
+        self.db.update_publish_comment(task_record["id"], format_name, version, comment)
+
+    def delete_scene(self, kind, entity, task, version):
+        task_record = self._task_record(kind, entity, task)
+        row = self.db.delete_scene(task_record["id"], version)
+        self._remove_path(row.get("file", ""))
+        return row
+
+    def delete_publish(self, kind, entity, task, format_name, version):
+        task_record = self._task_record(kind, entity, task)
+        row = self.db.delete_publish(task_record["id"], format_name, version)
+        path = row.get("path", "")
+        # usd rows point at the entry layer; file rows at the version dir.
+        version_dir = os.path.dirname(path) if os.path.isfile(path) else path
+        self._remove_path(version_dir)
+        if format_name == "usd":
+            self._rebuild_usd_root(task_record["id"], kind, entity, task, row["name"])
+        return row
+
+    def _rebuild_usd_root(self, task_id, kind, entity, task, name):
+        """Re-point the root interface after a version disappears; drop it
+        entirely when no versions of this publish name remain."""
+        from . import usdlayers
+
+        publish_root = self.publish_dir(kind, entity, task, "usd")
+        root_layer = os.path.join(publish_root, "%s.usda" % name)
+        variants = self.db.known_variants(task_id, "usd", name)
+        if not variants:
+            self._remove_path(root_layer)
+            return
+        latest_version = max(variants.values())
+        latest_row = self.db.get_publish(task_id, "usd", latest_version)
+        thumbnail = None
+        if latest_row and latest_row.get("thumbnail"):
+            if os.path.isfile(latest_row["thumbnail"]):
+                thumbnail = os.path.relpath(latest_row["thumbnail"], publish_root)
+                thumbnail = "./" + thumbnail.replace(os.sep, "/")
+        usdlayers.write_entry_layer(
+            root_layer,
+            SimpleNamespace(asset_name=name, meters_per_unit=1.0, up_axis="Y"),
+            variants={
+                variant: "./%s/%s.payload.usda" % (config.version_label(v), name)
+                for variant, v in variants.items()
+            },
+            selected_variant="default" if "default" in variants else sorted(variants)[0],
+            version_label=config.version_label(latest_version),
+            thumbnail=thumbnail,
+            extents=None,
+        )
+
+    def delete_task(self, kind, entity, task):
+        task_record = self._task_record(kind, entity, task)
+        self.db.delete_task(task_record["id"])
+        self._remove_path(self.task_dir(kind, entity, task))
+
+    def delete_entity(self, kind, name):
+        record = self.db.get_entity(kind, name)
+        if record is None:
+            raise ValueError("unknown %s %r" % (kind, name))
+        self.db.delete_entity(record["id"])
+        self._remove_path(self.entity_dir(kind, name))
+
     def browse(self):
         """Full project tree for the app: entities with their tasks."""
         tree = {"name": self.name, **self.meta(), "image_path": self.image_path()}
@@ -261,6 +349,32 @@ def list_projects(hub_root=None):
         info["counts"] = project.db.counts()
         projects.append(info)
     return projects
+
+
+def remove_project(name, hub_root=None, delete_files=False):
+    """Remove a project from the hub.
+
+    External (linked) projects are unregistered and their files kept unless
+    ``delete_files`` is set. Hub-local projects live inside the scanned
+    directory, so removing them always deletes their files.
+    """
+    root = config.ensure_hub(hub_root)
+    roots = _project_roots(root)
+    project_root = roots.get(name)
+    if project_root is None:
+        raise ValueError("unknown project %r" % name)
+    registry = _read_registry(root)
+    external = name in registry
+    if external:
+        del registry[name]
+        with open(_registry_path(root), "w", encoding="utf-8") as handle:
+            json.dump({"projects": registry}, handle, indent=2)
+    deleted = False
+    if delete_files or not external:
+        shutil.rmtree(project_root, ignore_errors=True)
+        deleted = True
+    return {"removed": name, "external": external, "deleted_files": deleted,
+            "path": project_root}
 
 
 def parse_scene_path(path, hub_root=None):

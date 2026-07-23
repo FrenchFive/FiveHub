@@ -552,6 +552,95 @@ tbody tr:hover {
   line-height: 1;
 }
 
+.btn.icon {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.btn.icon .glyph {
+  margin: 0;
+}
+
+.btn.icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.btn.dots {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+.btn.danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #ffffff;
+}
+
+.btn.danger:hover {
+  background: #e03127;
+}
+
+/* -- overflow menus ----------------------------------------------------- */
+
+.menu {
+  position: fixed;
+  z-index: 120;
+  background: var(--surface);
+  border: var(--hairline);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lift);
+  padding: 6px;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  animation: menu-pop 0.18s var(--pop);
+  transform-origin: top right;
+}
+
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(-4px);
+  }
+}
+
+.menu-item {
+  text-align: left;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+  padding: 9px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background var(--fast) var(--spring);
+}
+
+.menu-item:hover {
+  background: var(--fill);
+}
+
+/* Destructive actions: the fourth (and last) permitted use of red. */
+.menu-item.danger {
+  color: var(--red);
+}
+
+.menu-item.danger:hover {
+  background: rgba(255, 59, 48, 0.08);
+}
+
+.menu-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 5px 8px;
+}
+
 .glyph {
   display: inline-flex;
   margin-right: 7px;
@@ -710,6 +799,25 @@ tbody tr:hover {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+.entity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.card .card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 4px;
+}
+
+.card .card-head .name {
+  padding: 0;
 }
 
 .chips {
