@@ -160,6 +160,16 @@ Files the installer generates on your machine (`app/package-lock.json`,
 the splash PNG) are gitignored, so the clone stays clean and pullable —
 never commit them.
 
+**Uninstall / reset.** `uninstall.bat` (Windows) / `./uninstall.sh`
+removes everything the installer set up — the Houdini package, the Start
+Menu shortcut, app dependencies, the generated splash, the downloaded
+fonts and the login — and never touches your projects. **`reset.bat` /
+`./reset.sh` is a factory reset: uninstall + fresh install in one go**
+(close the app and Houdini first; Windows keeps their files locked).
+To also erase the hub with every project in it, run
+`python uninstall.py --purge-hub` — it asks you to type ERASE, and
+linked project folders outside the hub are always kept.
+
 For teams: point every machine's `FIVEHUB_ROOT` at the shared hub, and on
 the server run a cron for `python -m fivehub.cli backup` plus
 `python -m fivehub.cli worker` as a service for renders. Manual installs
