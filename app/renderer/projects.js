@@ -112,7 +112,7 @@ function card(project) {
   head.appendChild(el("div", "name", project.name));
   head.appendChild(
     dotsButton(() => [
-      { label: "Open", action: () => window.fivehub.openProject(project.name) },
+      { label: "Open", action: () => go("project.html", { name: project.name }) },
       { label: "Reveal files", action: () => window.fivehub.reveal(project.path) },
       project.git
         ? {
@@ -186,7 +186,7 @@ function card(project) {
   if (project.external) bits.push("LINKED");
   if (project.git) bits.push("GIT");
   node.appendChild(el("div", "meta", bits.join(" · ")));
-  node.addEventListener("click", () => window.fivehub.openProject(project.name));
+  node.addEventListener("click", () => go("project.html", { name: project.name }));
   return node;
 }
 

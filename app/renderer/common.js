@@ -16,6 +16,12 @@ function queryParams() {
   return Object.fromEntries(new URLSearchParams(window.location.search));
 }
 
+// In-place navigation — browsing happens in ONE window, never a new one.
+function go(page, params) {
+  const query = new URLSearchParams(params || {}).toString();
+  window.location.href = page + (query ? "?" + query : "");
+}
+
 function shortDate(iso) {
   return (iso || "").replace("T", " ").replace("Z", "").slice(0, 16);
 }

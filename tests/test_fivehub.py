@@ -1311,6 +1311,72 @@ class VersionBumpTests(unittest.TestCase):
             self.assertEqual(json.load(handle)["version"], version)
 
 
+class UninstallerTests(unittest.TestCase):
+    def test_uninstall_removes_installed_pieces(self):
+        # Install into a sandbox HOME, then uninstall: the Houdini package,
+        # shortcut, login and (only with --purge-hub --yes) the hub itself
+        # disappear. Repo-level steps are skipped so the checkout is safe.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            prefs = os.path.join(home, "houdini20.5")
+            os.makedirs(prefs)
+            hub = os.path.join(tmp, "hub")
+            os.makedirs(hub)
+            with open(os.path.join(hub, "registry.json"), "w") as handle:
+                json.dump({"projects": {"ext": os.path.join(tmp, "elsewhere")}},
+                          handle)
+            login = os.path.join(home, ".fivehub")
+            os.makedirs(login)
+            with open(os.path.join(login, "user.json"), "w") as handle:
+                json.dump({"name": "FIVE"}, handle)
+            apps = os.path.join(home, ".local", "share", "applications")
+            os.makedirs(apps)
+            desktop = os.path.join(apps, "fivehub.desktop")
+            with open(desktop, "w") as handle:
+                handle.write("[Desktop Entry]\n")
+
+            env = dict(os.environ, HOME=home, FIVEHUB_ROOT=hub)
+            env.pop("FIVEHUB_USER_FILE", None)
+            subprocess.run(
+                [sys.executable, "install.py", "--no-pip", "--no-fonts",
+                 "--no-splash", "--no-app", "--no-shortcut"],
+                cwd=REPO, capture_output=True, text=True, env=env,
+                timeout=120, check=True,
+            )
+            package = os.path.join(prefs, "packages", "fivehub.json")
+            self.assertTrue(os.path.isfile(package))
+
+            completed = subprocess.run(
+                [sys.executable, "uninstall.py", "--no-app", "--no-fonts",
+                 "--no-splash", "--purge-hub", "--yes"],
+                cwd=REPO, capture_output=True, text=True, env=env, timeout=120,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertFalse(os.path.exists(package))
+            self.assertFalse(os.path.exists(desktop))
+            self.assertFalse(os.path.exists(login))
+            self.assertFalse(os.path.exists(hub))
+            self.assertIn("kept linked project", completed.stdout)
+
+    def test_purge_needs_explicit_confirmation(self):
+        # Without --yes and without a terminal, the hub must survive.
+        with tempfile.TemporaryDirectory() as tmp:
+            hub = os.path.join(tmp, "hub")
+            os.makedirs(hub)
+            env = dict(os.environ, HOME=os.path.join(tmp, "home"),
+                       FIVEHUB_ROOT=hub)
+            completed = subprocess.run(
+                [sys.executable, "uninstall.py", "--no-houdini",
+                 "--no-shortcut", "--no-app", "--no-fonts", "--no-splash",
+                 "--no-login", "--purge-hub"],
+                cwd=REPO, capture_output=True, text=True, env=env,
+                timeout=120, stdin=subprocess.DEVNULL,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(os.path.isdir(hub))
+            self.assertIn("kept (not confirmed)", completed.stdout)
+
+
 class UpdaterTests(unittest.TestCase):
     def test_version_parse_and_compare(self):
         from fivehub import updater
