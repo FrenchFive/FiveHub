@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FIVE HUB main menu. Picked up via HOUDINI_PATH (see the fivehub.json
+     package written by houdini/install.py). Every item bootstraps sys.path
+     from $FIVEHUB so the pipeline works without PYTHONPATH tricks. -->
+<mainMenu>
+  <menuBar>
+    <subMenu id="fivehub_menu">
+      <label>FIVE HUB</label>
+      <insertBefore>help_menu</insertBefore>
+
+      <scriptItem id="fivehub_save_scene_as">
+        <label>Save Scene As...</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.save_scene_as()
+]]></scriptCode>
+      </scriptItem>
+
+      <scriptItem id="fivehub_increment_save">
+        <label>Increment Save</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.increment_save()
+]]></scriptCode>
+      </scriptItem>
+
+      <scriptItem id="fivehub_load_scene">
+        <label>Load Scene...</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.load_scene()
+]]></scriptCode>
+      </scriptItem>
+
+      <separatorItem/>
+
+      <scriptItem id="fivehub_publish">
+        <label>Publish Selection...</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.publish()
+]]></scriptCode>
+      </scriptItem>
+
+      <scriptItem id="fivehub_load_asset">
+        <label>Load Published Asset...</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.load_asset()
+]]></scriptCode>
+      </scriptItem>
+
+      <scriptItem id="fivehub_import_staged">
+        <label>Import Staged From Hub</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.import_staged()
+]]></scriptCode>
+      </scriptItem>
+
+      <separatorItem/>
+
+      <scriptItem id="fivehub_open_hub">
+        <label>Open Hub App</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.launch_hub()
+]]></scriptCode>
+      </scriptItem>
+
+      <scriptItem id="fivehub_reload">
+        <label>Reload Pipeline</label>
+        <scriptCode><![CDATA[
+import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.reload_fivehub()
+]]></scriptCode>
+      </scriptItem>
+
+    </subMenu>
+  </menuBar>
+</mainMenu>

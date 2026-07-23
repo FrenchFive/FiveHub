@@ -3,16 +3,27 @@ const { pathToFileURL } = require("node:url");
 
 contextBridge.exposeInMainWorld("fivehub", {
   fileUrl: (target) => pathToFileURL(target).href,
+
   root: () => ipcRenderer.invoke("hub:root"),
-  list: () => ipcRenderer.invoke("hub:list"),
   projects: () => ipcRenderer.invoke("hub:projects"),
-  show: (name) => ipcRenderer.invoke("hub:show", name),
-  log: (limit) => ipcRenderer.invoke("hub:log", limit),
+  projectCreate: (name, image) => ipcRenderer.invoke("hub:projectCreate", name, image),
+  entityCreate: (project, kind, name) =>
+    ipcRenderer.invoke("hub:entityCreate", project, kind, name),
+  taskCreate: (project, kind, entity, name) =>
+    ipcRenderer.invoke("hub:taskCreate", project, kind, entity, name),
+  browse: (name) => ipcRenderer.invoke("hub:browse", name),
+  taskInfo: (context) => ipcRenderer.invoke("hub:taskInfo", context),
+  report: (path) => ipcRenderer.invoke("hub:report", path),
+  log: (project, limit) => ipcRenderer.invoke("hub:log", project, limit),
+  send: (context, format, version) =>
+    ipcRenderer.invoke("hub:send", context, format, version),
   demo: () => ipcRenderer.invoke("hub:demo"),
-  send: (name, version) => ipcRenderer.invoke("hub:send", name, version),
-  report: (params) => ipcRenderer.invoke("hub:report", params),
-  openAsset: (name) => ipcRenderer.invoke("win:asset", name),
-  openReport: (params) => ipcRenderer.invoke("win:report", params),
+
+  openProject: (name) => ipcRenderer.invoke("win:project", name),
+  openTask: (context) => ipcRenderer.invoke("win:task", context),
+  openReport: (path) => ipcRenderer.invoke("win:report", path),
+
   reveal: (target) => ipcRenderer.invoke("os:reveal", target),
   copy: (text) => ipcRenderer.invoke("os:copy", text),
+  pickImage: () => ipcRenderer.invoke("os:pickImage"),
 });

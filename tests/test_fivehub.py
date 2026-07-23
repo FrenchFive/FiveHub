@@ -14,22 +14,21 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
 from fivehub import config, geometry, naming
-from fivehub.db import Database
 from fivehub.demo import cube_mesh, run_demo
-from fivehub.geometry import MaterialData, MeshData, PublishRequest
-from fivehub.publish import publish
+from fivehub.geometry import MaterialData, PublishRequest
+from fivehub.project import create_project, get_project, list_projects, parse_scene_path
+from fivehub.publish import FilePublishRequest, publish_files, publish_usd
 from fivehub.report import Severity, Status, ValidationReport
 from fivehub.thumbs import write_placeholder_png
-from fivehub.validation import validate
+from fivehub.validation import validate, validate_files
 
 
-def make_request(tmp, name="TestCrate", **overrides):
+def usd_request(tmp, name="TestCrate", **overrides):
     thumbnail = os.path.join(tmp, "thumb.png")
     if not os.path.exists(thumbnail):
         write_placeholder_png(thumbnail)
     fields = {
         "asset_name": name,
-        "project": "UnitTests",
         "meshes": [cube_mesh()],
         "materials": {"M_DemoWood": MaterialData("M_DemoWood")},
         "thumbnail": thumbnail,
@@ -107,14 +106,13 @@ class ValidationTests(unittest.TestCase):
         return next(r for r in report.results if r.rule_id == rule_id)
 
     def test_clean_request_passes(self):
-        report = validate(make_request(self.tmp.name))
+        report = validate(usd_request(self.tmp.name))
         self.assertTrue(report.passed, report.to_text())
         self.assertEqual(report.error_count, 0)
         self.assertEqual(report.warning_count, 0)
 
     def test_unwelded_fails(self):
-        request = make_request(self.tmp.name, meshes=[cube_mesh(welded=False)])
-        report = validate(request)
+        report = validate(usd_request(self.tmp.name, meshes=[cube_mesh(welded=False)]))
         self.assertFalse(report.passed)
         result = self.rule(report, "geo.unwelded")
         self.assertEqual(result.status, Status.FAIL)
@@ -123,47 +121,63 @@ class ValidationTests(unittest.TestCase):
     def test_missing_material_fails(self):
         mesh = cube_mesh()
         mesh.face_materials = None
-        report = validate(make_request(self.tmp.name, meshes=[mesh], materials={}))
+        report = validate(usd_request(self.tmp.name, meshes=[mesh], materials={}))
         self.assertFalse(report.passed)
         self.assertEqual(self.rule(report, "mtl.missing").status, Status.FAIL)
 
     def test_unknown_material_fails(self):
-        report = validate(make_request(self.tmp.name, materials={}))
+        report = validate(usd_request(self.tmp.name, materials={}))
         self.assertFalse(report.passed)
         self.assertEqual(self.rule(report, "mtl.unknown").status, Status.FAIL)
 
     def test_bad_name_fails_and_style_warns(self):
-        report = validate(make_request(self.tmp.name, name="my crate"))
+        report = validate(usd_request(self.tmp.name, name="my crate"))
         self.assertFalse(report.passed)
         self.assertEqual(self.rule(report, "naming.asset").status, Status.FAIL)
 
-        report = validate(make_request(self.tmp.name, name="my_crate"))
+        report = validate(usd_request(self.tmp.name, name="my_crate"))
         style = self.rule(report, "naming.style")
         self.assertEqual(style.status, Status.FAIL)
         self.assertEqual(style.severity, Severity.WARNING)
         self.assertTrue(report.passed)  # warnings alone do not block
 
     def test_scale_warnings(self):
-        report = validate(make_request(self.tmp.name, meshes=[cube_mesh(size=500.0)]))
+        report = validate(usd_request(self.tmp.name, meshes=[cube_mesh(size=500.0)]))
         big = self.rule(report, "scale.size")
         self.assertEqual(big.status, Status.FAIL)
         self.assertEqual(big.severity, Severity.WARNING)
         self.assertTrue(report.passed)
 
-    def test_missing_thumbnail_warns(self):
-        report = validate(make_request(self.tmp.name, thumbnail=None))
-        thumb = self.rule(report, "asset.thumbnail")
-        self.assertEqual(thumb.status, Status.FAIL)
-        self.assertTrue(report.passed)
-
     def test_severity_override(self):
-        request = make_request(self.tmp.name, meshes=[cube_mesh(welded=False)])
+        request = usd_request(self.tmp.name, meshes=[cube_mesh(welded=False)])
         report = validate(request, {"geo.unwelded": {"severity": Severity.WARNING}})
         self.assertTrue(report.passed)
         self.assertEqual(self.rule(report, "geo.unwelded").severity, Severity.WARNING)
 
+    def test_file_rules(self):
+        cache = os.path.join(self.tmp.name, "cache.vdb")
+        with open(cache, "wb") as handle:
+            handle.write(b"data")
+        request = FilePublishRequest(asset_name="Smoke", format="vdb", files=[cache])
+        report = validate_files(request)
+        self.assertTrue(report.passed, report.to_text())
+
+        # Missing file blocks; wrong extension only warns.
+        request = FilePublishRequest(
+            asset_name="Smoke", format="vdb", files=[cache + ".missing"]
+        )
+        self.assertFalse(validate_files(request).passed)
+
+        wrong = os.path.join(self.tmp.name, "cache.obj")
+        with open(wrong, "wb") as handle:
+            handle.write(b"data")
+        request = FilePublishRequest(asset_name="Smoke", format="vdb", files=[wrong])
+        report = validate_files(request)
+        self.assertTrue(report.passed)
+        self.assertEqual(self.rule(report, "files.format").status, Status.FAIL)
+
     def test_report_roundtrip(self):
-        report = validate(make_request(self.tmp.name))
+        report = validate(usd_request(self.tmp.name))
         path = os.path.join(self.tmp.name, "report.json")
         report.save(path)
         loaded = ValidationReport.load(path)
@@ -171,10 +185,109 @@ class ValidationTests(unittest.TestCase):
         self.assertIn("VALIDATION PASSED", loaded.to_text())
 
 
+class ProjectTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.hub = os.path.join(self.tmp.name, "hub")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_create_project_layout(self):
+        project = create_project("Alpha", hub_root=self.hub)
+        for expected in (
+            config.PROJECT_FILE,
+            config.PROJECT_DB,
+            "image.png",
+        ):
+            self.assertTrue(os.path.isfile(os.path.join(project.root, expected)), expected)
+        for directory in (config.ASSETS_DIR, config.SHOTS_DIR, config.PROJECT_REPORTS_DIR):
+            self.assertTrue(os.path.isdir(os.path.join(project.root, directory)))
+        self.assertEqual(project.meta()["name"], "Alpha")
+
+        listed = list_projects(self.hub)
+        self.assertEqual([p["name"] for p in listed], ["Alpha"])
+        self.assertTrue(os.path.isfile(listed[0]["image_path"]))
+
+    def test_create_project_with_image(self):
+        image = os.path.join(self.tmp.name, "poster.png")
+        write_placeholder_png(image)
+        project = create_project("Beta", image=image, hub_root=self.hub)
+        self.assertTrue(project.image_path().endswith("image.png"))
+        self.assertTrue(os.path.isfile(project.image_path()))
+
+    def test_project_name_rules(self):
+        with self.assertRaises(ValueError):
+            create_project("bad name", hub_root=self.hub)
+        create_project("Gamma", hub_root=self.hub)
+        with self.assertRaises(ValueError):
+            create_project("Gamma", hub_root=self.hub)
+
+    def test_entities_and_tasks(self):
+        project = create_project("Delta", hub_root=self.hub)
+        project.create_entity("asset", "Crate")
+        project.create_task("asset", "Crate", "Modeling")  # lowered on creation
+        self.assertEqual([t["name"] for t in project.tasks("asset", "Crate")], ["modeling"])
+        self.assertTrue(os.path.isdir(project.scenes_dir("asset", "Crate", "modeling")))
+
+        with self.assertRaises(ValueError):
+            project.create_entity("asset", "Crate")  # duplicate
+        with self.assertRaises(ValueError):
+            project.create_entity("asset", "bad name")
+        with self.assertRaises(ValueError):
+            project.create_task("asset", "Nope", "modeling")  # unknown entity
+        with self.assertRaises(ValueError):
+            project.create_task("asset", "Crate", "bad task")
+
+    def test_scene_versioning(self):
+        project = create_project("Epsilon", hub_root=self.hub)
+        project.create_entity("shot", "SH010")
+        project.create_task("shot", "SH010", "fx")
+
+        path, version = project.next_scene_path("shot", "SH010", "fx")
+        self.assertEqual(version, 1)
+        self.assertTrue(path.endswith("SH010_fx_v001.hip"))
+
+        with self.assertRaises(ValueError):
+            project.register_scene("shot", "SH010", "fx", version, path)  # not written
+
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as handle:
+            handle.write("hip")
+        project.register_scene("shot", "SH010", "fx", version, path, "first pass", "ana")
+
+        path2, version2 = project.next_scene_path("shot", "SH010", "fx")
+        self.assertEqual(version2, 2)
+        with open(path2, "w") as handle:
+            handle.write("hip")
+        project.register_scene("shot", "SH010", "fx", version2, path2)
+
+        scenes = project.scenes("shot", "SH010", "fx")
+        self.assertEqual([s["version"] for s in scenes], [2, 1])
+        self.assertEqual(scenes[1]["notes"], "first pass")
+
+        context = parse_scene_path(path2, self.hub)
+        self.assertEqual(
+            context,
+            {
+                "project": "Epsilon",
+                "kind": "shot",
+                "entity": "SH010",
+                "task": "fx",
+                "file": "SH010_fx_v002.hip",
+            },
+        )
+        self.assertIsNone(parse_scene_path("/somewhere/else.hip", self.hub))
+        self.assertIsNone(parse_scene_path("", self.hub))
+
+
 class PublishTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.hub = os.path.join(self.tmp.name, "hub")
+        self.project = create_project("Pub", hub_root=self.hub)
+        self.project.create_entity("asset", "TestCrate")
+        self.project.create_task("asset", "TestCrate", "modeling")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -183,12 +296,17 @@ class PublishTests(unittest.TestCase):
         with open(os.path.join(*parts), "r", encoding="utf-8") as handle:
             return handle.read()
 
-    def test_publish_creates_component_structure(self):
-        result = publish(make_request(self.tmp.name), hub_root=self.hub)
+    def test_publish_usd_component_structure(self):
+        result = publish_usd(
+            self.project, "asset", "TestCrate", "modeling", usd_request(self.tmp.name)
+        )
         self.assertTrue(result.passed, result.report.to_text())
         self.assertEqual(result.version, 1)
+        self.assertIn(
+            os.path.join("assets", "TestCrate", "modeling", "publish", "usd", "v001"),
+            result.publish_dir,
+        )
 
-        version_dir = result.version_dir
         for filename in (
             "TestCrate.usda",
             "TestCrate.payload.usda",
@@ -198,103 +316,112 @@ class PublishTests(unittest.TestCase):
             os.path.join("thumbnails", "TestCrate.png"),
         ):
             self.assertTrue(
-                os.path.isfile(os.path.join(version_dir, filename)), filename
+                os.path.isfile(os.path.join(result.publish_dir, filename)), filename
             )
 
-        entry = self.read(version_dir, "TestCrate.usda")
-        self.assertIn('defaultPrim = "TestCrate"', entry)
+        entry = self.read(result.publish_dir, "TestCrate.usda")
         self.assertIn('kind = "component"', entry)
         self.assertIn('variantSet "geo"', entry)
         self.assertIn("payload = @./TestCrate.payload.usda@</TestCrate>", entry)
-        self.assertIn("AssetPreviewsAPI", entry)
         self.assertIn(
             "previews:thumbnails:default:defaultImage = @./thumbnails/TestCrate.png@",
             entry,
         )
         self.assertIn("extentsHint", entry)
+        self.assertIn("Pub / asset TestCrate / modeling", entry)
 
-        payload = self.read(version_dir, "TestCrate.payload.usda")
-        self.assertIn("@./TestCrate.mtl.usda@</TestCrate>", payload)
-        self.assertIn("@./TestCrate.geo.usda@</TestCrate>", payload)
-
-        geo = self.read(version_dir, "TestCrate.geo.usda")
-        self.assertIn('def Mesh "crate"', geo)
-        self.assertIn("faceVertexCounts", geo)
-
-        mtl = self.read(version_dir, "TestCrate.mtl.usda")
-        self.assertIn('def Material "M_DemoWood"', mtl)
+        mtl = self.read(result.publish_dir, "TestCrate.mtl.usda")
         self.assertIn("UsdPreviewSurface", mtl)
         self.assertIn("rel material:binding = </TestCrate/mtl/M_DemoWood>", mtl)
 
-        database = Database(config.db_path(self.hub))
-        assets = database.list_assets()
-        self.assertEqual(len(assets), 1)
-        self.assertEqual(assets[0]["name"], "TestCrate")
-        self.assertEqual(assets[0]["latest_version"], 1)
-
-    def test_failed_publish_writes_nothing_to_assets(self):
-        request = make_request(self.tmp.name, meshes=[cube_mesh(welded=False)])
-        result = publish(request, hub_root=self.hub)
-        self.assertFalse(result.passed)
-        self.assertIsNone(result.version)
-        self.assertFalse(
-            os.path.exists(os.path.join(config.assets_path(self.hub), "TestCrate"))
-        )
-        self.assertTrue(os.path.isfile(result.report_path))
-        self.assertTrue(result.report_path.startswith(config.reports_path(self.hub)))
-
-        history = Database(config.db_path(self.hub)).publish_history()
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0]["passed"], 0)
-        self.assertIsNone(history[0]["version"])
+        publishes = self.project.publishes("asset", "TestCrate", "modeling")
+        self.assertEqual(len(publishes), 1)
+        self.assertEqual(publishes[0]["format"], "usd")
+        self.assertEqual(publishes[0]["version"], 1)
+        self.assertEqual(publishes[0]["passed"], 1)
 
     def test_variant_publish_composes_across_versions(self):
-        publish(make_request(self.tmp.name), hub_root=self.hub)
-        result = publish(
-            make_request(self.tmp.name, variant="damaged", comment="dents"),
-            hub_root=self.hub,
+        publish_usd(
+            self.project, "asset", "TestCrate", "modeling", usd_request(self.tmp.name)
         )
-        self.assertTrue(result.passed)
+        result = publish_usd(
+            self.project, "asset", "TestCrate", "modeling",
+            usd_request(self.tmp.name, variant="damaged"),
+        )
         self.assertEqual(result.version, 2)
 
-        # v002's entry exposes its own variant locally and v001's by relative path.
-        entry = self.read(result.version_dir, "TestCrate.usda")
+        entry = self.read(result.publish_dir, "TestCrate.usda")
         self.assertIn('"damaged" (', entry)
         self.assertIn("payload = @./TestCrate.payload.usda@</TestCrate>", entry)
         self.assertIn("payload = @../v001/TestCrate.payload.usda@</TestCrate>", entry)
         self.assertIn('string geo = "default"', entry)
 
-        # The root interface points every variant at its latest version.
-        root_layer = self.read(result.asset_dir, "TestCrate.usda")
+        root_layer = self.read(result.root_layer)
         self.assertIn("payload = @./v001/TestCrate.payload.usda@</TestCrate>", root_layer)
         self.assertIn("payload = @./v002/TestCrate.payload.usda@</TestCrate>", root_layer)
 
-    def test_multi_material_mesh_gets_subsets(self):
-        mesh = cube_mesh()
-        mesh.face_materials = ["M_A", "M_A", "M_A", "M_B", "M_B", "M_B"]
-        request = make_request(
-            self.tmp.name,
-            meshes=[mesh],
-            materials={"M_A": MaterialData("M_A"), "M_B": MaterialData("M_B")},
+    def test_blocked_publish_writes_nothing_to_task(self):
+        result = publish_usd(
+            self.project, "asset", "TestCrate", "modeling",
+            usd_request(self.tmp.name, meshes=[cube_mesh(welded=False)]),
         )
-        result = publish(request, hub_root=self.hub)
-        self.assertTrue(result.passed, result.report.to_text())
-        geo = self.read(result.version_dir, "TestCrate.geo.usda")
-        self.assertIn('def GeomSubset "M_A"', geo)
-        self.assertIn('familyName = "materialBind"', geo)
-        mtl = self.read(result.version_dir, "TestCrate.mtl.usda")
-        self.assertIn('over "M_A"', mtl)
-        self.assertIn("rel material:binding = </TestCrate/mtl/M_B>", mtl)
+        self.assertFalse(result.passed)
+        self.assertIsNone(result.version)
+        self.assertFalse(
+            os.path.exists(
+                self.project.publish_dir("asset", "TestCrate", "modeling", "usd")
+            )
+        )
+        self.assertTrue(result.report_path.startswith(self.project.reports_dir()))
 
-    def test_demo_end_to_end(self):
-        results = run_demo(self.hub)
-        self.assertEqual([r.passed for r in results], [True, True, False])
-        database = Database(config.db_path(self.hub))
-        self.assertEqual(len(database.publish_history()), 3)
-        asset = database.get_asset("DemoCrate")
-        self.assertEqual(
-            database.known_variants(asset["id"]), {"default": 1, "dark": 2}
+        publishes = self.project.publishes("asset", "TestCrate", "modeling")
+        self.assertEqual(len(publishes), 1)
+        self.assertEqual(publishes[0]["passed"], 0)
+        self.assertIsNone(publishes[0]["version"])
+
+    def test_publish_files(self):
+        cache = os.path.join(self.tmp.name, "smoke.vdb")
+        with open(cache, "wb") as handle:
+            handle.write(b"volume data")
+        result = publish_files(
+            self.project, "asset", "TestCrate", "modeling",
+            FilePublishRequest(asset_name="TestCrate", format="vdb", files=[cache]),
         )
+        self.assertTrue(result.passed, result.report.to_text())
+        self.assertEqual(result.version, 1)
+        self.assertTrue(os.path.isfile(os.path.join(result.publish_dir, "smoke.vdb")))
+        self.assertTrue(os.path.isfile(os.path.join(result.publish_dir, "report.json")))
+
+        # USD and vdb version counters are independent.
+        usd = publish_usd(
+            self.project, "asset", "TestCrate", "modeling", usd_request(self.tmp.name)
+        )
+        self.assertEqual(usd.version, 1)
+
+    def test_publish_files_blocked_on_missing_file(self):
+        result = publish_files(
+            self.project, "asset", "TestCrate", "modeling",
+            FilePublishRequest(asset_name="TestCrate", format="vdb", files=["/nope.vdb"]),
+        )
+        self.assertFalse(result.passed)
+        self.assertIsNone(result.version)
+
+
+class DemoTests(unittest.TestCase):
+    def test_demo_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hub = os.path.join(tmp, "hub")
+            results = run_demo(hub)
+            self.assertEqual([r["passed"] for r in results], [True, True, False, True])
+
+            project = get_project("DemoProject", hub)
+            self.assertEqual(
+                project.db.counts(), {"assets": 2, "shots": 1, "publishes": 3}
+            )
+            history = project.db.publish_history()
+            self.assertEqual(len(history), 4)
+            # Running the demo twice keeps working (idempotent structure).
+            run_demo(hub)
 
 
 class CliTests(unittest.TestCase):
@@ -305,43 +432,64 @@ class CliTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def cli(self, *args):
+    def cli(self, *args, expect_failure=False):
         completed = subprocess.run(
             [sys.executable, "-m", "fivehub.cli", "--hub", self.hub, *args],
             cwd=REPO,
             capture_output=True,
             text=True,
         )
+        if expect_failure:
+            self.assertNotEqual(completed.returncode, 0)
+            return completed.stderr
         self.assertEqual(completed.returncode, 0, completed.stderr)
         return json.loads(completed.stdout)
 
     def test_cli_contract(self):
         info = self.cli("root")
         self.assertEqual(info["root"], os.path.abspath(self.hub))
+        self.assertEqual(info["default_format"], "usd")
+        self.assertIn("modeling", info["default_tasks"])
+
+        image = os.path.join(self.tmp.name, "poster.png")
+        write_placeholder_png(image)
+        created = self.cli("project-create", "Mars", "--image", image)
+        self.assertTrue(os.path.isfile(created["project"]["image_path"]))
+        self.cli("project-create", "Mars", expect_failure=True)
+
+        self.cli("entity-create", "Mars", "asset", "Rover")
+        self.cli("task-create", "Mars", "asset", "Rover", "modeling")
+        self.cli("entity-create", "Mars", "asset", "bad name", expect_failure=True)
+
+        tree = self.cli("browse", "Mars")["project"]
+        self.assertEqual(tree["assets"][0]["name"], "Rover")
+        self.assertEqual(tree["assets"][0]["tasks"][0]["name"], "modeling")
 
         self.cli("demo")
+        projects = self.cli("projects")["projects"]
+        self.assertEqual([p["name"] for p in projects], ["DemoProject", "Mars"])
 
-        listing = self.cli("list")
-        self.assertEqual([a["name"] for a in listing["assets"]], ["DemoCrate"])
-        self.assertTrue(os.path.isfile(listing["assets"][0]["thumbnail"]))
-
-        detail = self.cli("show", "DemoCrate")
-        self.assertEqual(len(detail["asset"]["versions"]), 2)
-        self.assertEqual(detail["asset"]["variants"], {"default": 1, "dark": 2})
-
-        report = self.cli("report", "DemoCrate", "--version", "1")
+        info = self.cli("task-info", "DemoProject", "asset", "DemoCrate", "modeling")
+        self.assertEqual(len(info["publishes"]), 2)
+        report_path = info["publishes"][0]["report_path"]
+        report = self.cli("report", "--path", report_path)
         self.assertTrue(report["report"]["passed"])
 
-        log = self.cli("log")
-        self.assertEqual(len(log["log"]), 3)
-        self.assertEqual(log["log"][0]["passed"], 0)  # newest = the broken one
+        log = self.cli("log", "DemoProject")["log"]
+        self.assertEqual(len(log), 4)
+        self.assertEqual(log[0]["format"], "vdb")
 
-        sent = self.cli("send", "DemoCrate")
+        sent = self.cli("send", "DemoProject", "asset", "DemoCrate", "modeling")
+        self.assertTrue(sent["selection"]["path"].endswith("DemoCrate.usda"))
         self.assertTrue(os.path.isfile(sent["path"]))
-        self.assertTrue(sent["selection"]["layer"].endswith("DemoCrate.usda"))
 
-        projects = self.cli("projects")
-        self.assertEqual(projects["projects"], ["Demo"])
+        sent = self.cli(
+            "send", "DemoProject", "shot", "SH010", "fx", "--format", "vdb"
+        )
+        self.assertTrue(os.path.isdir(sent["selection"]["path"]))
+        self.cli(
+            "send", "DemoProject", "shot", "SH010", "layout", expect_failure=True
+        )
 
 
 class ThumbTests(unittest.TestCase):

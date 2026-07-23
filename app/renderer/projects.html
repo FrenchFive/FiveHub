@@ -11,14 +11,20 @@
   <div class="page">
     <header class="bar">
       <div class="brand">FIVEHUB</div>
-      <input type="text" id="search" placeholder="SEARCH" style="flex:1" />
-      <select id="project">
-        <option value="">ALL PROJECTS</option>
-      </select>
-      <button class="btn" id="refresh">REFRESH</button>
+      <div class="spacer"></div>
+      <button class="btn solid" id="new-project">NEW PROJECT</button>
     </header>
     <main class="content">
-      <div id="assets"></div>
+      <div id="create-form" class="create-panel hidden">
+        <div class="label">CREATE PROJECT</div>
+        <div class="form-row">
+          <input type="text" id="project-name" placeholder="PROJECT NAME" style="flex:1" />
+          <button class="btn" id="pick-image">PICK IMAGE</button>
+          <button class="btn solid" id="create-project">CREATE</button>
+        </div>
+        <div class="label mono" id="image-name"></div>
+      </div>
+      <div id="projects"></div>
     </main>
     <footer class="bar">
       <div class="label" id="hub-path"></div>
@@ -26,6 +32,6 @@
     </footer>
   </div>
   <script src="common.js"></script>
-  <script src="library.js"></script>
+  <script src="projects.js"></script>
 </body>
 </html>

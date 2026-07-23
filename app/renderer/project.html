@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src file:; font-src 'self'" />
+  <title>FIVEHUB — PROJECT</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="bar">
+      <div class="brand">FIVEHUB</div>
+      <div class="spacer"></div>
+      <div class="label" id="counts"></div>
+    </header>
+    <main class="content">
+      <div class="stack">
+        <div class="row" id="title-row"></div>
+        <div class="columns">
+          <section>
+            <div class="section-head">
+              <div class="label">ASSETS</div>
+              <div class="form-row">
+                <input type="text" id="new-asset" placeholder="NEW ASSET" />
+                <button class="btn" id="add-asset">+</button>
+              </div>
+            </div>
+            <div id="assets" class="entity-list"></div>
+          </section>
+          <section>
+            <div class="section-head">
+              <div class="label">SHOTS</div>
+              <div class="form-row">
+                <input type="text" id="new-shot" placeholder="NEW SHOT" />
+                <button class="btn" id="add-shot">+</button>
+              </div>
+            </div>
+            <div id="shots" class="entity-list"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+    <footer class="bar">
+      <div class="label mono" id="project-path"></div>
+    </footer>
+  </div>
+  <script src="common.js"></script>
+  <script src="project.js"></script>
+</body>
+</html>
