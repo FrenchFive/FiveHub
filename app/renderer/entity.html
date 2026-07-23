@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src file:; font-src 'self'" />
+  <title>FIVEHUB — ENTITY</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="bar">
+      <button class="btn" id="back" title="Back to the project">‹ PROJECT</button>
+      <div class="spacer"></div>
+      <div class="label" id="context-label"></div>
+      <button class="btn icon dots" id="entity-menu" title="More" aria-label="More options">⋯</button>
+    </header>
+    <main class="content">
+      <div class="stack">
+        <div class="row">
+          <h1 class="title" id="entity-title"></h1>
+          <span class="spacer"></span>
+          <span class="label" id="entity-meta"></span>
+        </div>
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title">TASKS</div>
+            <button class="btn small" id="add-task">+ NEW TASK</button>
+          </div>
+          <div id="tasks" class="entity-list"></div>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title">PUBLISHES — ALL TASKS</div>
+          </div>
+          <div id="publishes"></div>
+        </section>
+      </div>
+    </main>
+    <footer class="bar">
+      <div class="mono" id="entity-path"></div>
+    </footer>
+  </div>
+  <script src="common.js"></script>
+  <script src="entity.js"></script>
+</body>
+</html>

@@ -75,4 +75,6 @@ contextBridge.exposeInMainWorld("fivehub", {
   pickFiles: (title) => ipcRenderer.invoke("os:pickFiles", title),
   openScene: (file, projectRoot) =>
     ipcRenderer.invoke("os:openScene", file, projectRoot),
+  launchHoudini: (context, projectRoot) =>
+    ipcRenderer.invoke("os:launchHoudini", context, projectRoot),
 });

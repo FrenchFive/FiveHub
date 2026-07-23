@@ -59,7 +59,21 @@ def _source_info(nodes=()):
 
 
 def _current_context():
-    return parse_scene_path(hou.hipFile.path())
+    context = parse_scene_path(hou.hipFile.path())
+    if context:
+        return context
+    # Launched from the hub's "+ NEW SCENE IN HOUDINI" button: the app hands
+    # the task over via FH_* so Save Scene As starts prefilled even though
+    # the scene is still untitled.
+    env = {
+        "project": hou.getenv("FH_PROJECT") or "",
+        "kind": hou.getenv("FH_KIND") or "asset",
+        "entity": hou.getenv("FH_ENTITY") or "",
+        "task": hou.getenv("FH_TASK") or "",
+    }
+    if env["project"] and env["entity"] and env["task"]:
+        return env
+    return None
 
 
 def _bind_context_env(project, context):
