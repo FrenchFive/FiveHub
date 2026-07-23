@@ -1,0 +1,14 @@
+{
+  "name": "fivehub-app",
+  "productName": "FiveHub",
+  "version": "2.0.0",
+  "description": "FiveHub asset library — standalone black & white window UI",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

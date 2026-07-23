@@ -1,6 +1,16 @@
+# hub data (assets, database, reports) lives outside version control
+/hub
+
+# python
+__pycache__/
+*.pyc
+
+# electron app
+app/node_modules/
+app/dist/
+
+# legacy locations
 /test
 /asset
 /db
-
 toolbar
-__pycache__

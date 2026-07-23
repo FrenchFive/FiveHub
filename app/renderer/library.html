@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src file:; font-src 'self'" />
+  <title>FIVEHUB</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="bar">
+      <div class="brand">FIVEHUB</div>
+      <input type="text" id="search" placeholder="SEARCH" style="flex:1" />
+      <select id="project">
+        <option value="">ALL PROJECTS</option>
+      </select>
+      <button class="btn" id="refresh">REFRESH</button>
+    </header>
+    <main class="content">
+      <div id="assets"></div>
+    </main>
+    <footer class="bar">
+      <div class="label" id="hub-path"></div>
+      <div class="label" id="count"></div>
+    </footer>
+  </div>
+  <script src="common.js"></script>
+  <script src="library.js"></script>
+</body>
+</html>
