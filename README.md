@@ -1,66 +1,73 @@
 # FiveHub
 
-**A USD asset publishing pipeline for Houdini** — validated publishes, versioned USD component assets, and a standalone black & white asset browser.
-
-FiveHub 2.0 is a full rework. Assets are no longer serialized Houdini python; every publish now produces a proper, DCC-agnostic **USD component asset**, and every publish is gated by a **validation pass** with a pass/fail report.
+**A project-based USD publishing pipeline for Houdini** — projects, assets & shots with tasks, versioned work scenes, validated multi-format publishes, and a standalone black & white hub app.
 
 ## SUMMARY :
-- [ARCHITECTURE](#architecture-) — how assets are stored
-- [VALIDATION](#validation-) — what gets checked on publish
+- [THE PIPELINE](#the-pipeline-) — projects → entities → tasks → scenes → publishes
+- [INSIDE HOUDINI](#inside-houdini-) — the FIVE HUB menu
+- [VALIDATION](#validation-) — what gates a publish
+- [USD STRUCTURE](#usd-structure-) — what a publish looks like on disk
 - [THE APP](#the-app-) — the standalone Electron UI
-- [SETUP](#setup-) — install into Houdini
-- [USAGE](#usage-) — publish / browse / import
+- [SETUP](#setup-) — install script
 - [CLI](#cli-) — scripting surface
 - [DEVELOPMENT](#development-) — tests, demo data
 
 ------
 
-## ARCHITECTURE :
-
-### USD component structure
-
-Each publish writes the standard component-asset layer stack:
+## THE PIPELINE :
 
 ```
 hub/
-├── assets/
-│   └── WoodenCrate/
-│       ├── WoodenCrate.usda            ← root interface, always tracks the latest publish
-│       ├── v001/                       ← immutable version
-│       │   ├── WoodenCrate.usda        ← entry layer
-│       │   ├── WoodenCrate.payload.usda
-│       │   ├── WoodenCrate.geo.usda    ← geometry layer
-│       │   ├── WoodenCrate.mtl.usda    ← material layer (UsdPreviewSurface)
-│       │   ├── thumbnails/WoodenCrate.png
-│       │   └── report.json             ← the validation report that let it through
-│       └── v002/ ...
-├── db/fivehub.db                       ← SQLite index (assets / versions / publish log)
-├── reports/                            ← reports of failed publish attempts
-└── exchange/                           ← app ⇄ Houdini handoff (import selection)
+└── projects/
+    └── <Project>/                      ← created in the hub app (name + image)
+        ├── project.json                ← identity card
+        ├── project.db                  ← per-project database
+        ├── image.png                   ← project image
+        ├── reports/                    ← reports of blocked publishes
+        ├── assets/                     ← entities of kind "asset"
+        │   └── <Asset>/
+        │       └── <task>/             ← modeling / rig / lookdev / fx / ...
+        │           ├── scenes/         ← versioned work scenes
+        │           │   ├── <Asset>_<task>_v001.hip
+        │           │   └── <Asset>_<task>_v002.hip
+        │           └── publish/
+        │               ├── usd/        ← USD component publishes (default)
+        │               │   ├── <Asset>.usda      ← root interface, tracks latest
+        │               │   └── v001/ v002/ ...
+        │               └── vdb/ bgeo/ obj/       ← file-format publishes
+        └── shots/                      ← entities of kind "shot", same layout
 ```
 
-The entry layer is a real component asset interface:
+- **Projects** are created in the hub app with a name and an image; every project gets **its own SQLite database** (`project.db`) holding its assets, shots, tasks, scenes and publish history.
+- **Assets and shots** are created per project; **tasks** (any identifier — modeling, rig, lookdev, fx, animation, environment, ... are suggested) are created per entity.
+- **Scenes** are versioned `.hip` files owned by a task. Every save records version, notes and user; the current scene's context is recovered from its path, so increment-save and publish know where they are.
+- **Publishes** are versioned per task *and per format*. USD is the default and produces a full component asset; `vdb` / `bgeo` / `obj` publish the selection's geometry as validated file drops.
 
-- `kind = "component"`, `assetInfo` (name, version, identifier)
-- **payload arc** — geometry stays out of composition until loaded
-- **geo / mtl layer split** — the payload composes the material layer *over* the geometry layer; per-face assignments become `materialBind` GeomSubsets
-- **variants** — a `geo` variantSet; publishing variant `damaged` of an existing asset composes older variants from their own versions (nothing is copied)
-- **thumbnail baked into the asset** via `AssetPreviewsAPI` (`previews:thumbnails:default:defaultImage`), plus `extentsHint` for cheap bounds
+## INSIDE HOUDINI :
 
-Everything is authored as plain `usda` with zero dependencies, so the pipeline runs inside Houdini, in CI, or standalone.
+After install, a **FIVE HUB** menu sits in Houdini's main menu bar:
 
-### Storage
+| Menu item | What it does |
+|---|---|
+| **Save Scene As...** | FiveHub window: pick project → asset/shot → task (new entities/tasks can be typed in place), add notes → saves `<Entity>_<task>_v###.hip` and records it |
+| **Increment Save** | Detects the current scene's context, asks for notes, saves the next version |
+| **Load Scene...** | Browse projects → entities → tasks → versions with notes, opens the picked scene |
+| **Publish Selection...** | FiveHub window: context (prefilled from the scene), publish name, **format (USD default / VDB / BGEO / OBJ)**, variant, comment → runs validation → pass/fail report window. Errors block the publish |
+| **Load Published Asset...** | Browse publishes of any task and import: USD → Solaris `/stage` reference (SOP fallback), file formats → File SOPs |
+| **Import Staged From Hub** | Imports whatever the hub app staged via SEND TO HOUDINI |
+| **Open Hub App** | Launches the standalone Electron app |
+| **Reload Pipeline** | Developer helper |
 
-The old one-table database is replaced by `asset` / `version` / `publish_log` tables (per-operation connections, foreign keys, UTC timestamps). Every publish attempt — including blocked ones — is recorded in the log with its report.
+All FiveHub windows inside Houdini are Qt (PySide2/PySide6), parented to the main window and styled in the same pure black & white language as the app. A shelf with SAVE + / PUBLISH / IMPORT / HUB mirrors the most-used actions.
 
 ## VALIDATION :
 
-Publishing runs a rule chain against the DCC-neutral geometry model. **Errors block the publish**; warnings are recorded in the report.
+Publishing runs a rule chain against a DCC-neutral geometry model. **Errors block the publish**; warnings are recorded. The report (JSON + rendered) is stored inside the publish version — blocked attempts land in the project's `reports/` and in its publish log instead.
 
 | Rule | Checks | Severity |
 |---|---|---|
-| `naming.asset` | asset name is a valid USD identifier, not reserved | ERROR |
-| `naming.style` | UpperCamelCase asset style | WARNING |
+| `naming.asset` | publish name is a valid USD identifier, not reserved | ERROR |
+| `naming.style` | UpperCamelCase name style | WARNING |
 | `naming.variant` / `naming.meshes` / `naming.materials` | identifiers valid & unique | ERROR |
 | `geo.empty` | meshes exist and have faces | ERROR |
 | `scale.units` | `metersPerUnit` / `upAxis` sane | ERROR |
@@ -72,23 +79,29 @@ Publishing runs a rule chain against the DCC-neutral geometry model. **Errors bl
 | `geo.degenerate` | no <3-vertex / zero-area / self-indexed faces | ERROR |
 | `mtl.missing` | every face has a material assigned | ERROR |
 | `mtl.unknown` | every bound material ships with the publish | ERROR |
-| `asset.thumbnail` | a capture was taken | WARNING |
+| `asset.thumbnail` | a viewport capture was taken | WARNING |
 
-Severities and tolerances are overridable per publish (`publish(request, rule_config={"geo.unwelded": {"severity": "warning"}})`).
+File-format publishes (vdb/bgeo/obj) run the light chain: naming, `files.exist` (ERROR), `files.format` extension match (WARNING), thumbnail. Severities and tolerances are overridable per publish.
 
-The report (JSON + rendered) is stored **inside the version directory** for successful publishes and under `reports/` for blocked ones.
+## USD STRUCTURE :
+
+Every USD publish is a proper component asset, authored as dependency-free `usda`:
+
+- entry layer: `kind = "component"`, `assetInfo`, `extentsHint`, **thumbnail baked in** via `AssetPreviewsAPI`
+- **payload arc inside a `geo` variantSet** — geometry stays out of composition until loaded; publishing variant `damaged` composes older variants from their own versions (nothing copied)
+- **geo / mtl layer split** — materials (UsdPreviewSurface, sampled from principled shaders) composed *over* geometry; per-face assignments become `materialBind` GeomSubsets
+- a root interface (`publish/usd/<Name>.usda`) regenerated on each publish so downstream references always track the latest version of every variant — pin by referencing a `v###` entry directly
 
 ## THE APP :
 
-The UI is no longer dialogs inside Houdini — it is a standalone **Electron app** with separate windows:
+Standalone Electron app, separate windows, two colors only (`#000` / `#fff`):
 
-- **LIBRARY** — search, project filter, thumbnail grid
-- **ASSET** — one window per asset: versions, variants, send-to-Houdini, reveal, copy USD path
-- **VALIDATION** — one window per report: PASSED/FAILED verdict and the full rule breakdown
+- **PROJECTS** — project cards with image and counts; **create projects** (name + image picker); seed the demo
+- **PROJECT** — one window per project: ASSETS and SHOTS columns, **create entities and tasks** in place (task suggestions built in), task chips with scene/publish counts
+- **TASK** — one window per task: work scene versions with notes and user, publishes with format/version/variant, PASS/FAIL status, report, SEND TO HOUDINI, copy paths
+- **VALIDATION** — one window per report: verdict plus the full rule breakdown
 
-Pure black `#000` and pure white `#fff` only — hairline borders, uppercase tracking, inversion on hover, slow liquid easing. No grays, no color.
-
-The app contains no pipeline logic: it shells out to `python -m fivehub.cli` (JSON), so disk and database have a single implementation.
+The app owns no pipeline logic — every action shells out to `python -m fivehub.cli` (JSON), so disk and databases have a single implementation.
 
 ```
 cd app
@@ -96,54 +109,52 @@ npm install
 npm start
 ```
 
-Set `FIVEHUB_PYTHON` if your python binary isn't `python3`/`python`.
+Set `FIVEHUB_PYTHON` if your python binary isn't `python3` / `python`.
 
 ## SETUP :
 
-1. Clone wherever you want the pipeline to live:
+1. Clone wherever the pipeline should live:
    ```
    git clone https://github.com/FrenchFive/FiveHub.git
    ```
-2. Install the Houdini package (writes one JSON file into your prefs, no `houdini.env` editing):
+2. Run the install script:
    ```
    python houdini/install.py
    ```
-   It lists the Houdini preference folders it finds — pick one, done. Uninstall = delete `<prefs>/packages/fivehub.json`.
-3. (Optional, for the app) `cd app && npm install`
-4. Launch Houdini — the **FIVE HUB** shelf appears.
+   It finds your Houdini preference folders and writes a single package file (`packages/fivehub.json`) — no `houdini.env` editing. The package adds `$FIVEHUB/houdini` to `HOUDINI_PATH`, which brings in the **FIVE HUB menu**, the shelf and the python modules. Delete the JSON to uninstall.
+3. (For the app) `cd app && npm install`
+4. Launch Houdini — FIVE HUB appears in the main menu bar.
 
-The hub root defaults to `<repo>/hub`; point `FIVEHUB_ROOT` at a shared location for team use.
-
-## USAGE :
-
-- **PUBLISH** (shelf) — select geo objects (or SOPs), fill in name / project / variant / comment. The viewport is framed and captured (and restored afterwards), geometry and materials (`shop_materialpath`, principled shader parameters) are extracted, validation runs, and you get the pass/fail report. Blocked publishes write nothing to `assets/`.
-- **HUB** (shelf) — opens the Electron app.
-- **IMPORT** (shelf) — references the asset staged by the app's *SEND TO HOUDINI* button (or a file chooser) into `/stage` (Solaris), falling back to a SOP USD import.
+The hub root defaults to `<repo>/hub`; point `FIVEHUB_ROOT` at a shared location for team use (Houdini and the app both respect it).
 
 ## CLI :
 
 Every command prints JSON:
 
 ```
-python -m fivehub.cli list                 # assets with latest version + thumbnail
-python -m fivehub.cli show WoodenCrate     # versions, variants, layers
-python -m fivehub.cli report WoodenCrate --version 2
-python -m fivehub.cli log                  # publish history incl. blocked attempts
-python -m fivehub.cli send WoodenCrate     # stage for the Houdini IMPORT tool
-python -m fivehub.cli demo                 # seed demo publishes (one deliberately fails)
-python -m fivehub.cli --hub /mnt/pipeline list
+python -m fivehub.cli projects
+python -m fivehub.cli project-create Mars --image poster.png
+python -m fivehub.cli entity-create Mars asset Rover
+python -m fivehub.cli task-create Mars asset Rover modeling
+python -m fivehub.cli browse Mars
+python -m fivehub.cli task-info Mars asset Rover modeling
+python -m fivehub.cli send Mars asset Rover modeling --format usd
+python -m fivehub.cli log Mars
+python -m fivehub.cli report --path <report.json>
+python -m fivehub.cli demo
+python -m fivehub.cli --hub /mnt/pipeline projects
 ```
 
 ## DEVELOPMENT :
 
 ```
-python -m unittest discover -s tests -v    # 23 tests, no external deps
-python -m fivehub.cli demo                 # demo data for the app
+python -m unittest discover -s tests -v    # 29 tests, no external deps
+python -m fivehub.cli demo                 # demo project for the app
 ```
 
-Publishing from other DCCs = produce `MeshData`/`PublishRequest` (see `fivehub/geometry.py`) and call `fivehub.publish()` — validation and USD authoring are DCC-free.
+Publishing from scripts = build a `PublishRequest` (USD) or `FilePublishRequest` (files) and call `fivehub.publish_usd()` / `fivehub.publish_files()` on a `Project` — validation and USD authoring are DCC-free.
 
 ## UPCOMING :
 - [ ] UV / texture export into the mtl layer
 - [ ] Proxy purpose geometry (viewport LODs)
-- [ ] Per-asset tags in the app
+- [ ] Scene thumbnails in the task window

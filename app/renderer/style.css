@@ -385,6 +385,147 @@ tbody tr:hover .btn:hover {
   white-space: nowrap;
 }
 
+/* -- project management ------------------------------------------------ */
+
+.hidden {
+  display: none !important;
+}
+
+.create-panel {
+  border: var(--hairline);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+.form-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.form-row input[type="text"] {
+  min-width: 0;
+  flex: 1;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: var(--hairline);
+  margin-bottom: 14px;
+}
+
+.entity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.entity-block {
+  border: var(--hairline);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: transform var(--slow) var(--ease);
+}
+
+.entity-block:hover {
+  transform: translateX(4px);
+}
+
+.entity-block .name {
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  background: var(--black);
+  color: var(--white);
+  border: var(--hairline);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.chip:hover {
+  background: var(--white);
+  color: var(--black);
+}
+
+.project-image {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border: var(--hairline);
+  filter: grayscale(1) contrast(1.05);
+}
+
+.status-pass,
+.status-fail {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.3em;
+  padding: 3px 8px 3px 11px;
+}
+
+.status-pass {
+  border: var(--hairline);
+}
+
+.status-fail {
+  background: var(--white);
+  color: var(--black);
+}
+
+tbody tr:hover .status-pass {
+  border-color: var(--black);
+}
+
+tbody tr:hover .status-fail {
+  background: var(--black);
+  color: var(--white);
+}
+
+.row-actions {
+  white-space: nowrap;
+}
+
+.row-actions .btn {
+  margin-right: 6px;
+}
+
 /* -- bits -------------------------------------------------------------- */
 
 .row {

@@ -1,12 +1,16 @@
-"""FiveHub Houdini integration.
+"""FiveHub Houdini integration — the FIVE HUB menu's engine.
 
-Shelf-facing entry points:
+Entry points (wired to the main menu and the shelf):
 
-    publish()   extract selected geometry, capture a thumbnail, run the
-                validated USD publish and show the pass/fail report
-    import_asset()  reference a published asset (picks up the selection the
-                    hub app staged, or falls back to a file chooser)
-    launch_hub()    start the standalone FiveHub Electron app
+    save_scene_as()   save the current scene into a project/entity/task,
+                      versioned with notes
+    increment_save()  next version of the current pipeline scene
+    load_scene()      open a versioned scene from an asset or shot
+    publish()         validated publish of the selection (USD component by
+                      default, or vdb/bgeo/obj file drops)
+    load_asset()      import a publish into the scene
+    import_staged()   import whatever the hub app staged (SEND TO HOUDINI)
+    launch_hub()      start the standalone Electron app
     reload_fivehub()  developer helper
 
 Geometry is translated to the DCC-neutral fivehub model here; everything
@@ -14,9 +18,12 @@ downstream (validation, USD authoring, database) is Houdini-free.
 """
 
 import getpass
+import json
 import os
+import shutil
 import subprocess
 import sys
+import uuid
 
 import hou
 
@@ -27,10 +34,135 @@ for _path in (_REPO, os.path.join(_REPO, "houdini")):
 
 from fivehub import config, naming
 from fivehub.geometry import MaterialData, MeshData, PublishRequest, SourceInfo
-from fivehub.publish import publish as core_publish
+from fivehub.project import get_project, parse_scene_path
+from fivehub.publish import FilePublishRequest, publish_files, publish_usd
+
+FILE_EXPORT_EXTENSION = {"bgeo": ".bgeo.sc", "vdb": ".vdb", "obj": ".obj"}
 
 
-# -- geometry extraction -------------------------------------------------
+def _message(text, severity=hou.severityType.Message):
+    hou.ui.displayMessage(text, severity=severity, title="FIVE HUB")
+
+
+def _error(text):
+    _message(text, hou.severityType.Error)
+
+
+def _source_info(nodes=()):
+    return SourceInfo(
+        dcc="houdini %s" % hou.applicationVersionString(),
+        scene=hou.hipFile.path(),
+        nodes=[node.path() for node in nodes],
+        user=getpass.getuser(),
+    )
+
+
+def _current_context():
+    return parse_scene_path(hou.hipFile.path())
+
+
+def _ensure_context(context):
+    """Resolve a dialog context to a Project, creating the entity and task
+    on demand (projects themselves are created in the hub app)."""
+    try:
+        project = get_project(context["project"])
+    except ValueError:
+        raise ValueError(
+            "Project %r does not exist.\nCreate projects in the hub app first."
+            % context["project"]
+        )
+    kind, entity, task = context["kind"], context["entity"], context["task"]
+    if project.db.get_entity(kind, entity) is None:
+        project.create_entity(kind, entity)
+    entity_id = project.db.get_entity(kind, entity)["id"]
+    if project.db.get_task(entity_id, task) is None:
+        project.create_task(kind, entity, task)
+    return project
+
+
+# -- scenes --------------------------------------------------------------
+
+
+def save_scene_as():
+    from fivehub_windows import SaveSceneDialog, exec_dialog
+
+    dialog = SaveSceneDialog(prefill=_current_context())
+    if not dialog.context_widget.has_projects():
+        _error("No projects in the hub yet.\nCreate one in the hub app first.")
+        return None
+    if not exec_dialog(dialog):
+        return None
+    context, notes = dialog.values()
+    if not (context["project"] and context["entity"] and context["task"]):
+        _error("Project, asset/shot and task are all required.")
+        return None
+    return _save_into(context, notes)
+
+
+def increment_save():
+    context = _current_context()
+    if context is None:
+        return save_scene_as()
+    pressed, values = hou.ui.readMultiInput(
+        "Increment %s / %s / %s" % (context["project"], context["entity"], context["task"]),
+        ("Notes",),
+        buttons=("Save", "Cancel"),
+        default_choice=0,
+        close_choice=1,
+        title="FIVE HUB",
+    )
+    if pressed != 0:
+        return None
+    return _save_into(context, values[0].strip())
+
+
+def _save_into(context, notes):
+    try:
+        project = _ensure_context(context)
+        path, version = project.next_scene_path(
+            context["kind"], context["entity"], context["task"]
+        )
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        hou.hipFile.save(path)
+        project.register_scene(
+            context["kind"], context["entity"], context["task"],
+            version, path, notes, getpass.getuser(),
+        )
+    except (ValueError, hou.OperationFailed) as error:
+        _error(str(error))
+        return None
+    _message(
+        "SAVED %s\n%s / %s %s / %s"
+        % (
+            config.version_label(version),
+            context["project"], context["kind"], context["entity"], context["task"],
+        )
+    )
+    return path
+
+
+def load_scene():
+    from fivehub_windows import LoadSceneDialog, exec_dialog
+
+    dialog = LoadSceneDialog(prefill=_current_context())
+    if not exec_dialog(dialog):
+        return None
+    scene_file = dialog.selected_file()
+    if not scene_file:
+        return None
+    if not os.path.isfile(scene_file):
+        _error("Scene file is missing on disk:\n%s" % scene_file)
+        return None
+    try:
+        hou.hipFile.load(scene_file, suppress_save_prompt=False)
+    except hou.OperationInterrupted:
+        return None
+    except (hou.OperationFailed, hou.LoadWarning) as error:
+        _message(str(error), hou.severityType.Warning)
+    return scene_file
+
+
+# -- geometry extraction (USD publishes) ---------------------------------
 
 
 def _sop_geometry(node):
@@ -111,9 +243,8 @@ def _extract_mesh(node, material_paths):
             material_paths.setdefault(path, None)
         face_materials.append(path or None)
 
-    mesh_name = naming.make_identifier(node.name())
     mesh = MeshData(
-        name=mesh_name,
+        name=naming.make_identifier(node.name()),
         points=points,
         face_vertex_counts=counts,
         face_vertex_indices=indices,
@@ -139,8 +270,8 @@ def _material_from_path(path, used_names):
     if node is None:
         return material
 
-    def _parm(name_x, default):
-        parm = node.parm(name_x)
+    def _parm(parm_name, default):
+        parm = node.parm(parm_name)
         try:
             return parm.eval() if parm else default
         except hou.OperationFailed:
@@ -157,7 +288,7 @@ def _material_from_path(path, used_names):
     return material
 
 
-def _build_request(nodes, name, project, variant, comment):
+def _build_usd_request(nodes, name, variant, comment):
     material_paths = {}
     meshes = []
     skipped_total = 0
@@ -189,17 +320,11 @@ def _build_request(nodes, name, project, variant, comment):
 
     request = PublishRequest(
         asset_name=name,
-        project=project,
-        variant=variant or "default",
+        variant=variant,
         comment=comment,
         meshes=meshes,
         materials=materials,
-        source=SourceInfo(
-            dcc="houdini %s" % hou.applicationVersionString(),
-            scene=hou.hipFile.path(),
-            nodes=[node.path() for node in nodes],
-            user=getpass.getuser(),
-        ),
+        source=_source_info(nodes),
     )
     return request, skipped_total
 
@@ -252,97 +377,188 @@ def _capture_thumbnail(nodes, path):
     return path if os.path.isfile(path) else None
 
 
-# -- shelf entry points --------------------------------------------------
+# -- publish -------------------------------------------------------------
 
 
 def publish():
+    from fivehub_windows import PublishDialog, exec_dialog, show_report
+
     nodes = hou.selectedNodes()
     if not nodes:
-        hou.ui.displayMessage(
-            "Select the geo objects (or SOPs) to publish.", title="FiveHub"
-        )
+        _message("Select the geo objects (or SOPs) to publish.")
         return None
 
-    default_name = naming.make_identifier(nodes[0].name(), fallback="Asset")
-    default_name = default_name[0].upper() + default_name[1:]
-
-    pressed, values = hou.ui.readMultiInput(
-        "Publish selection as a USD component asset",
-        ("Asset Name", "Project", "Variant", "Comment"),
-        initial_contents=(default_name, "", "default", ""),
-        buttons=("Publish", "Cancel"),
-        default_choice=0,
-        close_choice=1,
-        title="FiveHub Publish",
-    )
-    if pressed != 0:
+    prefill = _current_context()
+    dialog = PublishDialog(prefill=prefill)
+    if not dialog.context_widget.has_projects():
+        _error("No projects in the hub yet.\nCreate one in the hub app first.")
         return None
-    name, project, variant, comment = (value.strip() for value in values)
+    if prefill is None:
+        # No pipeline scene context — suggest a name from the selection.
+        suggested = naming.make_identifier(nodes[0].name(), fallback="Asset")
+        dialog.name_edit.setText(suggested[0].upper() + suggested[1:])
+    if not exec_dialog(dialog):
+        return None
+
+    values = dialog.values()
+    context = values["context"]
+    if not (context["project"] and context["entity"] and context["task"]):
+        _error("Project, asset/shot and task are all required.")
+        return None
 
     try:
-        request, skipped = _build_request(nodes, name, project, variant, comment)
+        project = _ensure_context(context)
     except ValueError as error:
-        hou.ui.displayMessage(str(error), severity=hou.severityType.Error, title="FiveHub")
+        _error(str(error))
         return None
 
     root = config.ensure_hub()
     thumbnail = os.path.join(
-        config.exchange_path(root), "capture_%s.png" % naming.make_identifier(name)
+        config.exchange_path(root),
+        "capture_%s.png" % naming.make_identifier(values["name"] or "publish"),
     )
-    request.thumbnail = _capture_thumbnail(nodes, thumbnail)
+    thumbnail = _capture_thumbnail(nodes, thumbnail)
 
-    result = core_publish(request, hub_root=root)
-
-    summary = result.report.to_text()
-    if skipped:
-        summary += "\n\nNote: %d non-polygon primitive(s) were skipped." % skipped
-    if result.passed:
-        message = "PUBLISHED %s %s\n\n%s" % (name, result.version_label, summary)
-        severity = hou.severityType.Message
-    else:
-        message = "PUBLISH BLOCKED — validation failed\n\n%s" % summary
-        severity = hou.severityType.Error
-    hou.ui.displayMessage(message, severity=severity, title="FiveHub Publish Report")
-
-    if request.thumbnail and os.path.isfile(thumbnail):
-        os.remove(thumbnail)
-    return result
-
-
-def _read_selection():
-    import json
-
-    path = config.selection_path(config.ensure_hub())
-    if not os.path.isfile(path):
-        return None
+    scratch = None
     try:
-        with open(path, "r", encoding="utf-8") as handle:
+        if values["format"] == "usd":
+            try:
+                request, skipped = _build_usd_request(
+                    nodes, values["name"], values["variant"], values["comment"]
+                )
+            except ValueError as error:
+                _error(str(error))
+                return None
+            request.thumbnail = thumbnail
+            result = publish_usd(
+                project, context["kind"], context["entity"], context["task"], request
+            )
+            extra = "Skipped %d non-polygon primitive(s)." % skipped if skipped else ""
+        else:
+            scratch = os.path.join(
+                config.exchange_path(root), "export_%s" % uuid.uuid4().hex[:8]
+            )
+            os.makedirs(scratch, exist_ok=True)
+            files, failures = _export_node_files(nodes, values["format"], scratch)
+            if failures and not files:
+                _error("Nothing could be exported:\n%s" % "\n".join(failures))
+                return None
+            request = FilePublishRequest(
+                asset_name=values["name"],
+                format=values["format"],
+                files=files,
+                variant=values["variant"],
+                comment=values["comment"],
+                thumbnail=thumbnail,
+                source=_source_info(nodes),
+            )
+            result = publish_files(
+                project, context["kind"], context["entity"], context["task"], request
+            )
+            extra = "\n".join(failures)
+
+        header = (
+            "PUBLISHED %s %s" % (values["format"].upper(), result.version_label)
+            if result.passed
+            else "PUBLISH BLOCKED"
+        )
+        show_report(result.report, extra="%s\n%s" % (header, extra) if extra else header)
+        return result
+    finally:
+        if thumbnail and os.path.isfile(thumbnail):
+            os.remove(thumbnail)
+        if scratch and os.path.isdir(scratch):
+            shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _export_node_files(nodes, format_name, scratch):
+    """Write each node's geometry to a file of the requested format."""
+    extension = FILE_EXPORT_EXTENSION[format_name]
+    files, failures = [], []
+    used = set()
+    for node in nodes:
+        name = naming.make_identifier(node.name())
+        while name in used:
+            name += "_1"
+        used.add(name)
+        target = os.path.join(scratch, name + extension)
+        try:
+            geometry = _sop_geometry(node)
+            if geometry is None:
+                raise ValueError("no geometry")
+            geometry.saveToFile(target)
+            files.append(target)
+        except (ValueError, hou.OperationFailed, hou.Error) as error:
+            failures.append("%s: %s" % (node.path(), error))
+    return files, failures
+
+
+# -- import --------------------------------------------------------------
+
+
+def load_asset():
+    from fivehub_windows import LoadAssetDialog, exec_dialog
+
+    dialog = LoadAssetDialog(prefill=_current_context())
+    if not exec_dialog(dialog):
+        return None
+    row = dialog.selected_publish()
+    if not row:
+        return None
+    return _import_publish(row["format"], row["path"], row["name"])
+
+
+def import_staged():
+    """Import whatever the hub app staged via SEND TO HOUDINI."""
+    selection_file = config.selection_path(config.ensure_hub())
+    if not os.path.isfile(selection_file):
+        return load_asset()
+    try:
+        with open(selection_file, "r", encoding="utf-8") as handle:
             selection = json.load(handle)
     except (ValueError, OSError):
+        return load_asset()
+    path = selection.get("path", "")
+    if not path or not os.path.exists(path):
+        _error("The staged publish is missing on disk:\n%s" % path)
         return None
-    layer = selection.get("layer", "")
-    return selection if layer and os.path.isfile(layer) else None
+    return _import_publish(
+        selection.get("format", config.DEFAULT_FORMAT),
+        path,
+        selection.get("name", "asset"),
+    )
 
 
-def import_asset():
-    """Reference a published asset into the scene: Solaris /stage when
-    available, SOP-level USD import otherwise."""
-    selection = _read_selection()
-    if selection:
-        layer = selection["layer"]
-    else:
-        layer = hou.ui.selectFile(
-            start_directory=config.assets_path(config.ensure_hub()),
-            title="FiveHub — pick a published asset layer",
-            pattern="*.usd *.usda *.usdc",
-            chooser_mode=hou.fileChooserMode.Read,
+def _import_publish(format_name, path, name):
+    node_name = naming.make_identifier(name)
+    if format_name == "usd":
+        return _import_usd(path, node_name)
+
+    # File formats: one geo object, one File SOP per published file.
+    if os.path.isdir(path):
+        files = sorted(
+            os.path.join(path, entry)
+            for entry in os.listdir(path)
+            if os.path.isfile(os.path.join(path, entry))
+            and not entry.endswith(".json")
         )
-        layer = hou.text.expandString(layer) if layer else ""
-    if not layer:
+    else:
+        files = [path]
+    if not files:
+        _error("No files found in publish:\n%s" % path)
         return None
+    container = hou.node("/obj").createNode("geo", node_name)
+    for file_path in files:
+        file_sop = container.createNode(
+            "file", naming.make_identifier(os.path.basename(file_path).split(".")[0])
+        )
+        file_sop.parm("file").set(file_path)
+    container.moveToGoodPosition()
+    container.layoutChildren()
+    return container
 
-    node_name = naming.make_identifier(os.path.splitext(os.path.basename(layer))[0])
 
+def _import_usd(layer, node_name):
     stage = hou.node("/stage")
     if stage is not None:
         for type_name in ("reference::2.0", "reference"):
@@ -358,11 +574,14 @@ def import_asset():
                 pass
             return ref
 
-    obj = hou.node("/obj").createNode("geo", node_name)
-    importer = obj.createNode("usdimport", "import")
+    container = hou.node("/obj").createNode("geo", node_name)
+    importer = container.createNode("usdimport", "import")
     importer.parm("filepath1").set(layer)
-    obj.moveToGoodPosition()
-    return obj
+    container.moveToGoodPosition()
+    return container
+
+
+# -- app -----------------------------------------------------------------
 
 
 def launch_hub():
@@ -371,11 +590,10 @@ def launch_hub():
     binary = os.path.join(app_dir, "node_modules", ".bin",
                           "electron.cmd" if os.name == "nt" else "electron")
     if not os.path.isfile(binary):
-        hou.ui.displayMessage(
+        _message(
             "The FiveHub app is not installed yet.\n\n"
             "Run this once in a terminal:\n    cd %s\n    npm install" % app_dir,
-            severity=hou.severityType.Warning,
-            title="FiveHub",
+            hou.severityType.Warning,
         )
         return
 
@@ -395,20 +613,23 @@ def reload_fivehub():
     import fivehub
     import fivehub.cli
     import fivehub.config
-    import fivehub.db
     import fivehub.demo
     import fivehub.geometry
     import fivehub.naming
+    import fivehub.project
+    import fivehub.projectdb
     import fivehub.publish
     import fivehub.report
     import fivehub.thumbs
     import fivehub.usdlayers
     import fivehub.validation
+    import fivehub_windows
 
     for module in (
         fivehub.config, fivehub.naming, fivehub.geometry, fivehub.report,
-        fivehub.validation, fivehub.db, fivehub.usdlayers, fivehub.thumbs,
-        fivehub.publish, fivehub.demo, fivehub.cli, fivehub,
+        fivehub.validation, fivehub.projectdb, fivehub.project, fivehub.usdlayers,
+        fivehub.thumbs, fivehub.publish, fivehub.demo, fivehub.cli, fivehub,
+        fivehub_windows,
     ):
         importlib.reload(module)
     importlib.reload(sys.modules[__name__])

@@ -9,7 +9,7 @@ coverage. Severities and tolerances can be overridden per publish via a
 import math
 import os
 
-from . import geometry, naming
+from . import config, geometry, naming
 from .report import Rule, Severity, run_rules
 
 
@@ -297,6 +297,44 @@ class ThumbnailRule(Rule):
         return []
 
 
+class FilesRule(Rule):
+    rule_id = "files.exist"
+    label = "Published files exist and are not empty"
+    severity = Severity.ERROR
+
+    def check(self, request):
+        files = getattr(request, "files", None) or []
+        if not files:
+            return ["no files in publish"]
+        issues = []
+        for path in files:
+            if not os.path.isfile(path):
+                issues.append("file does not exist: %s" % path)
+            elif os.path.getsize(path) == 0:
+                issues.append("file is empty: %s" % path)
+        return issues
+
+
+class FormatExtensionRule(Rule):
+    rule_id = "files.format"
+    label = "File extensions match the publish format"
+    severity = Severity.WARNING
+
+    def applies(self, request):
+        return getattr(request, "format", "") in config.FORMAT_EXTENSIONS
+
+    def check(self, request):
+        extensions = config.FORMAT_EXTENSIONS[request.format]
+        issues = []
+        for path in getattr(request, "files", None) or []:
+            if not path.lower().endswith(extensions):
+                issues.append(
+                    "%s does not match format %r (expected %s)"
+                    % (os.path.basename(path), request.format, " / ".join(extensions))
+                )
+        return issues
+
+
 DEFAULT_RULES = (
     AssetNameRule,
     AssetStyleRule,
@@ -317,16 +355,33 @@ DEFAULT_RULES = (
 )
 
 
-def build_rules(config=None):
-    """Instantiate the default rule set, applying per-rule config overrides."""
-    config = config or {}
+# Light rule set for non-USD file publishes (vdb, bgeo, obj, ...): naming
+# and file health — geometry-level checks do not apply to opaque caches.
+FILE_RULES = (
+    AssetNameRule,
+    AssetStyleRule,
+    VariantNameRule,
+    FilesRule,
+    FormatExtensionRule,
+    ThumbnailRule,
+)
+
+
+def build_rules(overrides=None, rule_classes=DEFAULT_RULES):
+    """Instantiate a rule set, applying per-rule config overrides."""
+    overrides = overrides or {}
     rules = []
-    for rule_class in DEFAULT_RULES:
-        params = dict(config.get(rule_class.rule_id, {}))
+    for rule_class in rule_classes:
+        params = dict(overrides.get(rule_class.rule_id, {}))
         rules.append(rule_class(**params))
     return rules
 
 
-def validate(request, config=None):
-    """Run the full default rule set against a publish request."""
-    return run_rules(build_rules(config), request)
+def validate(request, overrides=None):
+    """Run the full USD publish rule set against a publish request."""
+    return run_rules(build_rules(overrides), request)
+
+
+def validate_files(request, overrides=None):
+    """Run the file-publish rule set against a FilePublishRequest."""
+    return run_rules(build_rules(overrides, FILE_RULES), request)

@@ -1,7 +1,7 @@
 // Report window — the pass/fail breakdown of one publish validation.
 
 const box = document.getElementById("report");
-const params = queryParams();
+const { path: reportPath } = queryParams();
 
 function ruleBlock(result) {
   const node = el("div", "rule " + result.status);
@@ -26,7 +26,7 @@ function ruleBlock(result) {
 
 async function load() {
   try {
-    const { report, path } = await window.fivehub.report(params);
+    const { report, path } = await window.fivehub.report(reportPath);
     document.title = "FIVEHUB — " + report.asset_name + " VALIDATION";
     document.getElementById("report-path").textContent = path;
 

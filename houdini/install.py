@@ -6,8 +6,9 @@ editing) into the chosen preferences directory:
     <prefs>/packages/fivehub.json
 
 The package exports $FIVEHUB, extends PYTHONPATH with the pipeline modules
-and adds the shelf directory to HOUDINI_TOOLBAR_PATH. Removing the single
-JSON file uninstalls cleanly.
+and adds ``$FIVEHUB/houdini`` to HOUDINI_PATH — which brings in both the
+FIVE HUB main menu (MainMenuCommon.xml) and the shelf (toolbar/). Removing
+the single JSON file uninstalls cleanly.
 
 Usage:
     python houdini/install.py             interactive
@@ -39,6 +40,7 @@ def candidate_pref_dirs():
 
 def package_payload():
     return {
+        "hpath": "$FIVEHUB/houdini",
         "env": [
             {"FIVEHUB": REPO.replace("\\", "/")},
             {
@@ -47,13 +49,7 @@ def package_payload():
                     "method": "prepend",
                 }
             },
-            {
-                "HOUDINI_TOOLBAR_PATH": {
-                    "value": "$FIVEHUB/houdini",
-                    "method": "prepend",
-                }
-            },
-        ]
+        ],
     }
 
 
@@ -97,7 +93,7 @@ def main(argv=None):
     target = install(prefs)
     print("Installed package: %s" % target)
     print("FIVEHUB -> %s" % REPO)
-    print("Launch Houdini and look for the FIVE HUB shelf.")
+    print("Launch Houdini — the FIVE HUB menu appears in the main menu bar.")
     print("To install the standalone app:  cd %s && npm install" % os.path.join(REPO, "app"))
     return 0
 
