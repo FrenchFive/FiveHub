@@ -257,7 +257,7 @@ function entityBlock(kind, entity) {
     );
     if (task.active_user) chip.title = "In use by " + task.active_user;
     chip.addEventListener("click", () =>
-      window.fivehub.openTask({
+      go("task.html", {
         project: projectName,
         kind,
         entity: entity.name,
@@ -275,10 +275,13 @@ function entityBlock(kind, entity) {
 
 function fillAssets(entities) {
   const container = document.getElementById("assets");
+  document.getElementById("assets-count").textContent = String(entities.length);
   clear(container);
   const visible = entities.filter(matches);
   if (!visible.length) {
-    container.appendChild(el("div", "label", entities.length ? "NO MATCH" : "NONE YET — USE +"));
+    container.appendChild(
+      el("div", "label", entities.length ? "NO MATCH" : "NO ASSETS YET"),
+    );
     return;
   }
   for (const entity of visible) container.appendChild(entityBlock("asset", entity));
@@ -286,10 +289,13 @@ function fillAssets(entities) {
 
 function fillShots(entities) {
   const container = document.getElementById("shots");
+  document.getElementById("shots-count").textContent = String(entities.length);
   clear(container);
   const visible = entities.filter(matches);
   if (!visible.length) {
-    container.appendChild(el("div", "label", entities.length ? "NO MATCH" : "NONE YET — USE +"));
+    container.appendChild(
+      el("div", "label", entities.length ? "NO MATCH" : "NO SHOTS YET"),
+    );
     return;
   }
   // Group by sequence — movies get SEQ headers, loose shots go last.
@@ -312,7 +318,7 @@ function renderRefs(refs) {
   const container = document.getElementById("refs");
   clear(container);
   if (!refs.length) {
-    container.appendChild(el("div", "label", "NO REFERENCES YET — USE + TO ADD BOARDS & BRIEFS"));
+    container.appendChild(el("div", "label", "NO REFERENCES YET — BOARDS, BRIEFS, STILLS"));
     return;
   }
   const grid = el("div", "refs-grid");
@@ -366,7 +372,7 @@ function renderJobs(jobs) {
   clear(container);
   if (!jobs.length) {
     container.appendChild(
-      el("div", "label", "NO JOBS — SUBMIT RENDERS FROM HOUDINI (FIVE HUB MENU)"),
+      el("div", "label", "NO JOBS YET — SUBMIT RENDERS FROM THE FIVE HUB MENU IN HOUDINI"),
     );
     return;
   }
@@ -440,6 +446,7 @@ function renderActivity(activity) {
   container.appendChild(list);
 }
 
+document.getElementById("back").addEventListener("click", () => go("projects.html"));
 document.getElementById("add-asset").addEventListener("click", () => entitySheet("asset"));
 document.getElementById("add-shot").addEventListener("click", () => entitySheet("shot"));
 searchInput.addEventListener("input", () => {

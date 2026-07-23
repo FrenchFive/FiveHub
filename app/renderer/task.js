@@ -2,6 +2,10 @@
 
 const context = queryParams(); // {project, kind, entity, task}
 
+const backBtn = document.getElementById("back");
+backBtn.textContent = "‹ " + (context.project || "PROJECT").toUpperCase();
+backBtn.addEventListener("click", () => go("project.html", { name: context.project }));
+
 document.getElementById("context-label").textContent =
   `${context.project} · ${context.kind} ${context.entity}`;
 document.getElementById("task-title").textContent =
