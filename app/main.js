@@ -9,6 +9,7 @@
 
 const { app, BrowserWindow, ipcMain, shell, clipboard, dialog } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -276,7 +277,75 @@ function resolveHoudini() {
       // keep looking
     }
   }
-  houdiniBinary = null;
+  houdiniBinary = findHoudiniInstall();
+  return houdiniBinary;
+}
+
+// Houdini is almost never on PATH (especially on Windows) — walk the
+// standard install locations and pick the newest version found.
+const HOUDINI_NAMES = ["houdinifx", "houdini", "houdinicore", "hindie"];
+
+function byVersionDesc(a, b) {
+  const ka = (a.match(/\d+/g) || []).map(Number);
+  const kb = (b.match(/\d+/g) || []).map(Number);
+  for (let i = 0; i < Math.max(ka.length, kb.length); i += 1) {
+    const diff = (kb[i] || 0) - (ka[i] || 0);
+    if (diff) return diff;
+  }
+  return 0;
+}
+
+function firstBinary(binDir, extension) {
+  for (const name of HOUDINI_NAMES) {
+    const candidate = path.join(binDir, name + extension);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function findHoudiniInstall() {
+  try {
+    if (process.env.HFS) {
+      const fromHfs = firstBinary(
+        path.join(process.env.HFS, "bin"),
+        process.platform === "win32" ? ".exe" : "",
+      );
+      if (fromHfs) return fromHfs;
+    }
+    if (process.platform === "win32") {
+      const base = path.join(
+        process.env.ProgramFiles || "C:\\Program Files",
+        "Side Effects Software",
+      );
+      for (const dir of fs.readdirSync(base)
+        .filter((name) => name.startsWith("Houdini"))
+        .sort(byVersionDesc)) {
+        const found = firstBinary(path.join(base, dir, "bin"), ".exe");
+        if (found) return found;
+      }
+    } else if (process.platform === "darwin") {
+      const base = "/Applications/Houdini";
+      for (const dir of fs.readdirSync(base)
+        .filter((name) => name.startsWith("Houdini"))
+        .sort(byVersionDesc)) {
+        const found = firstBinary(
+          path.join(base, dir,
+            "Frameworks/Houdini.framework/Versions/Current/Resources/bin"),
+          "",
+        );
+        if (found) return found;
+      }
+    } else {
+      for (const dir of fs.readdirSync("/opt")
+        .filter((name) => name.startsWith("hfs"))
+        .sort(byVersionDesc)) {
+        const found = firstBinary(path.join("/opt", dir, "bin"), "");
+        if (found) return found;
+      }
+    }
+  } catch {
+    // no standard install location on this machine
+  }
   return null;
 }
 
