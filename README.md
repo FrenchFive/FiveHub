@@ -156,6 +156,9 @@ an update, restart Houdini (or Reload Pipeline for python-only changes).
 Manual: `python -m fivehub.cli update [--check]`. Server deployments
 update once for everyone — pull the shared clone. Set
 `FIVEHUB_NO_AUTOUPDATE=1` to mute the popup (the button still works).
+Files the installer generates on your machine (`app/package-lock.json`,
+the splash PNG) are gitignored, so the clone stays clean and pullable —
+never commit them.
 
 For teams: point every machine's `FIVEHUB_ROOT` at the shared hub, and on
 the server run a cron for `python -m fivehub.cli backup` plus

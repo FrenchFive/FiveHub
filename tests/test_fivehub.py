@@ -1343,6 +1343,44 @@ class UpdaterTests(unittest.TestCase):
             self.assertFalse(outcome["updated"])
             self.assertIn("not a git checkout", outcome["error"])
 
+    def test_update_never_blocks_on_regenerated_files(self):
+        # Machine-generated files (the splash) sit modified in clones from
+        # before they were gitignored; update() must discard them and pull
+        # — including the very pull that stops tracking them.
+        from fivehub import updater
+
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+
+        def git(cwd, *args):
+            subprocess.run(["git", *args], cwd=cwd, check=True,
+                           capture_output=True, text=True, env=env)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            origin = os.path.join(tmp, "origin")
+            splash = os.path.join("houdini", "splash", "fivehub_splash.png")
+            os.makedirs(os.path.join(origin, "houdini", "splash"))
+            with open(os.path.join(origin, splash), "w") as handle:
+                handle.write("committed pixels")
+            git(origin, "init")
+            git(origin, "add", ".")
+            git(origin, "commit", "-m", "track the splash")
+
+            clone = os.path.join(tmp, "clone")
+            git(tmp, "clone", "origin", "clone")
+            with open(os.path.join(clone, splash), "w") as handle:
+                handle.write("regenerated on this machine")
+
+            git(origin, "rm", "--cached", "houdini/splash/fivehub_splash.png")
+            with open(os.path.join(origin, ".gitignore"), "w") as handle:
+                handle.write("houdini/splash/*.png\n")
+            git(origin, "add", ".gitignore")
+            git(origin, "commit", "-m", "stop tracking the splash")
+
+            outcome = updater.update(clone)
+            self.assertEqual(outcome["error"], "")
+            self.assertTrue(outcome["updated"])
+
 
 class InstallerTests(unittest.TestCase):
     def test_one_shot_installer_offline(self):
