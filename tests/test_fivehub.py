@@ -419,6 +419,29 @@ class PublishTests(unittest.TestCase):
         with open(os.path.join(*parts), "r", encoding="utf-8") as handle:
             return handle.read()
 
+    def test_material_coverage_blocks_only_lookdev_tasks(self):
+        # A modeling publish ships before lookdev exists: no materials is a
+        # warning there, but the same publish into lookdev is blocked.
+        self.project.create_task("asset", "TestCrate", "lookdev")
+
+        def bare_request():
+            request = usd_request(self.tmp.name, name="TestCrate")
+            for mesh in request.meshes:
+                mesh.face_materials = None
+            request.materials = {}
+            return request
+
+        result = publish_usd(
+            self.project, "asset", "TestCrate", "modeling", bare_request()
+        )
+        self.assertTrue(result.passed, result.report.to_text())
+        self.assertEqual(result.report.warning_count, 1)
+
+        blocked = publish_usd(
+            self.project, "asset", "TestCrate", "lookdev", bare_request()
+        )
+        self.assertFalse(blocked.passed)
+
     def test_publish_usd_component_structure(self):
         result = publish_usd(
             self.project, "asset", "TestCrate", "modeling", usd_request(self.tmp.name)
