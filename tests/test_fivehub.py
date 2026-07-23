@@ -5,6 +5,7 @@ Run with:  python -m unittest discover -s tests -v
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -911,6 +912,150 @@ class PresenceTrashBackupTests(unittest.TestCase):
         )
         for path in payload["files"]:
             self.assertTrue(os.path.isfile(path))
+
+
+class RecordsGitTests(unittest.TestCase):
+    """The three deployment modes: the DB is a cache of record sidecars."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.hub = os.path.join(self.tmp.name, "hub")
+        self.project = create_project("Sync", hub_root=self.hub)
+        self.project.create_entity("asset", "Crate", )
+        self.project.create_task("asset", "Crate", "modeling")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_sidecars_written_and_db_rebuilds(self):
+        from fivehub.project import Project
+
+        self.project.register_scene("asset", "Crate", "modeling", "v1 notes", "ana")
+        publish_usd(self.project, "asset", "Crate", "modeling",
+                    usd_request(self.tmp.name, name="Crate"))
+
+        records = self.project.records_dir()
+        for table in ("entity", "task", "scene", "publish"):
+            self.assertTrue(os.listdir(os.path.join(records, table)), table)
+
+        # Kill the database — a fresh Project rebuilds it from the records
+        # (this is exactly what a git clone without project.db looks like).
+        os.remove(os.path.join(self.project.root, config.PROJECT_DB))
+        rebuilt = Project(self.project.root)
+        scenes = rebuilt.scenes("asset", "Crate", "modeling")
+        self.assertEqual(scenes[0]["notes"], "v1 notes")
+        self.assertTrue(os.path.isabs(scenes[0]["file"]))
+        publishes = rebuilt.publishes("asset", "Crate", "modeling")
+        self.assertEqual(publishes[0]["format"], "usd")
+        self.assertEqual(publishes[0]["version"], 1)
+
+    def test_deletion_propagates_through_records(self):
+        from fivehub.project import Project
+
+        _path, version = self.project.register_scene("asset", "Crate", "modeling")
+        self.project.delete_scene("asset", "Crate", "modeling", version)
+        os.remove(os.path.join(self.project.root, config.PROJECT_DB))
+        rebuilt = Project(self.project.root)
+        self.assertEqual(rebuilt.scenes("asset", "Crate", "modeling"), [])
+
+    def test_pulled_records_appear_without_rebuild(self):
+        # Simulate a teammate's pulled sidecar: write a foreign scene record
+        # directly, then access through a new Project instance.
+        from fivehub.project import Project
+
+        task_id = self.project._task_record("asset", "Crate", "modeling")["id"]
+        foreign = {
+            "table": "scene",
+            "row": {
+                "id": "aaaaaaaa-0000-0000-0000-000000000001",
+                "task_id": task_id, "version": 7,
+                "file": "assets/Crate/modeling/scenes/Crate_modeling_v007.hip",
+                "notes": "from teammate", "user": "remote", "status": "complete",
+                "deleted_at": "", "created_at": "2026-07-23T10:00:00Z",
+            },
+        }
+        table_dir = os.path.join(self.project.records_dir(), "scene")
+        os.makedirs(table_dir, exist_ok=True)
+        with open(os.path.join(table_dir, "%s.json" % foreign["row"]["id"]), "w") as f:
+            json.dump(foreign, f)
+
+        fresh = Project(self.project.root)
+        scenes = fresh.scenes("asset", "Crate", "modeling")
+        self.assertIn(7, [s["version"] for s in scenes])
+        # The next claim respects the pulled version.
+        _path, version = fresh.claim_scene("asset", "Crate", "modeling")
+        self.assertEqual(version, 8)
+        fresh.release_scene("asset", "Crate", "modeling", version)
+
+    def test_offline_version_collision_is_reported(self):
+        from fivehub.project import Project
+
+        _path, version = self.project.register_scene("asset", "Crate", "modeling")
+        task_id = self.project._task_record("asset", "Crate", "modeling")["id"]
+        clash = {
+            "table": "scene",
+            "row": {
+                "id": "bbbbbbbb-0000-0000-0000-000000000002",
+                "task_id": task_id, "version": version,  # same slot, other id
+                "file": "assets/Crate/modeling/scenes/other.hip",
+                "notes": "", "user": "remote", "status": "complete",
+                "deleted_at": "", "created_at": "2026-07-23T10:00:00Z",
+            },
+        }
+        table_dir = os.path.join(self.project.records_dir(), "scene")
+        with open(os.path.join(table_dir, "%s.json" % clash["row"]["id"]), "w") as f:
+            json.dump(clash, f)
+        result = Project(self.project.root).sync_from_records()
+        self.assertEqual(len(result["conflicts"]), 1)
+        self.assertIn("version slot", result["conflicts"][0]["reason"])
+
+    def test_gitignore_written_at_creation(self):
+        gitignore = os.path.join(self.project.root, ".gitignore")
+        self.assertTrue(os.path.isfile(gitignore))
+        with open(gitignore) as handle:
+            content = handle.read()
+        self.assertIn("project.db", content)
+        self.assertIn("caches/", content)
+
+    @unittest.skipUnless(shutil.which("git"), "git not installed")
+    def test_git_setup_autocommit_and_status(self):
+        from fivehub import gitsync
+
+        env_backup = {k: os.environ.get(k) for k in
+                      ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+                       "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL")}
+        os.environ.update({
+            "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "t@t.t",
+            "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "t@t.t",
+        })
+        try:
+            self.assertFalse(gitsync.is_git_project(self.project.root))
+            setup = gitsync.setup(self.project.root, user="Ana")
+            self.assertTrue(setup["initialized"])
+            self.assertTrue(gitsync.is_git_project(self.project.root))
+
+            status = gitsync.status(self.project.root)
+            self.assertTrue(status["git"])
+            self.assertEqual(status["dirty"], 0)
+
+            # A publish auto-commits (project.db itself is gitignored).
+            publish_usd(self.project, "asset", "Crate", "modeling",
+                        usd_request(self.tmp.name, name="Crate"))
+            self.assertEqual(gitsync.status(self.project.root)["dirty"], 0)
+            ok, log = gitsync._run(self.project.root, "log", "--oneline")
+            self.assertTrue(ok)
+            self.assertIn("publish usd v001", log)
+
+            # sync without a remote degrades to commit-only.
+            result = gitsync.sync(self.project.root, user="Ana")
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["steps"][1]["detail"], "no remote configured")
+        finally:
+            for key, value in env_backup.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 class DemoTests(unittest.TestCase):

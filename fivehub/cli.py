@@ -303,6 +303,35 @@ def cmd_assemble(root, args):
     return {"assembly": result}
 
 
+def cmd_rebuild(root, args):
+    """Rebuild the project database cache from its record sidecars."""
+    project = get_project(args.project, root)
+    return {"rebuild": project.sync_from_records()}
+
+
+def cmd_git_status(root, args):
+    from . import gitsync
+
+    return {"status": gitsync.status(get_project(args.project, root).root)}
+
+
+def cmd_git_setup(root, args):
+    from . import gitsync
+
+    project = get_project(args.project, root)
+    return {"setup": gitsync.setup(project.root, user=get_user())}
+
+
+def cmd_git_sync(root, args):
+    from . import gitsync
+
+    project = get_project(args.project, root)
+    result = gitsync.sync(project.root, message=args.message, user=get_user())
+    # A pull may have brought teammates' record sidecars — apply them.
+    result["rebuild"] = project.sync_from_records()
+    return {"sync": result}
+
+
 def cmd_backup(root, args):
     """Consistent SQLite backups of every project DB + the registry."""
     import sqlite3
@@ -547,6 +576,29 @@ def build_parser():
     assemble.add_argument("--kind", choices=config.KINDS, default="shot")
     assemble.add_argument("--comment", default="")
     assemble.set_defaults(func=cmd_assemble)
+
+    rebuild = commands.add_parser(
+        "rebuild", help="rebuild a project's database from its record files"
+    )
+    rebuild.add_argument("project")
+    rebuild.set_defaults(func=cmd_rebuild)
+
+    git_status = commands.add_parser("git-status", help="repository state of a project")
+    git_status.add_argument("project")
+    git_status.set_defaults(func=cmd_git_status)
+
+    git_setup = commands.add_parser(
+        "git-setup", help="make a project git-ready (.gitignore, init, first commit)"
+    )
+    git_setup.add_argument("project")
+    git_setup.set_defaults(func=cmd_git_setup)
+
+    git_sync = commands.add_parser(
+        "git-sync", help="commit, pull --rebase, push, and apply pulled records"
+    )
+    git_sync.add_argument("project")
+    git_sync.add_argument("--message", default="")
+    git_sync.set_defaults(func=cmd_git_sync)
 
     commands.add_parser(
         "backup", help="back up every project database and the registry"

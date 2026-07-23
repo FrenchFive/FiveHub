@@ -217,6 +217,28 @@ def publish_usd(project, kind, entity, task, request, rule_config=None):
             custom=provenance,
         )
         report_path = report.save(os.path.join(version_dir, config.REPORT_FILE))
+
+        # Root interface: every variant of this publish name at its latest —
+        # written before completion so the completion autocommit captures it.
+        latest = dict(known)
+        latest[request.variant] = version
+        root_variants = {
+            variant: "./%s/%s.payload.usda" % (config.version_label(v), name)
+            for variant, v in latest.items()
+        }
+        root_thumbnail = (
+            "./%s/%s" % (label, thumbnail_rel[2:]) if thumbnail_rel else None
+        )
+        root_layer = usdlayers.write_entry_layer(
+            os.path.join(publish_root, "%s.usda" % name),
+            request,
+            variants=root_variants,
+            selected_variant="default" if "default" in root_variants else request.variant,
+            version_label=label,
+            thumbnail=root_thumbnail,
+            extents=bounds,
+            custom=provenance,
+        )
     except Exception:
         project.release_publish(kind, entity, task, "usd", version)
         shutil.rmtree(version_dir, ignore_errors=True)
@@ -226,24 +248,6 @@ def publish_usd(project, kind, entity, task, request, rule_config=None):
         kind, entity, task, "usd", version, report,
         path=entry_layer, report_path=report_path, thumbnail=thumbnail_abs,
         comment=request.comment, user=request.source.user,
-    )
-
-    # Root interface: every variant of this publish name at its latest.
-    latest = project.db.known_variants(task_id, "usd", name)
-    root_variants = {
-        variant: "./%s/%s.payload.usda" % (config.version_label(v), name)
-        for variant, v in latest.items()
-    }
-    root_thumbnail = "./%s/%s" % (label, thumbnail_rel[2:]) if thumbnail_rel else None
-    root_layer = usdlayers.write_entry_layer(
-        os.path.join(publish_root, "%s.usda" % name),
-        request,
-        variants=root_variants,
-        selected_variant="default" if "default" in root_variants else request.variant,
-        version_label=label,
-        thumbnail=root_thumbnail,
-        extents=bounds,
-        custom=provenance,
     )
 
     return PublishResult(

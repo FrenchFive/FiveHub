@@ -51,6 +51,10 @@ SELECTION_FILE = "selection.json"
 REPORT_FILE = "report.json"
 THUMBNAILS_DIR = "thumbnails"
 
+# Per-record JSON sidecars: the durable, git-mergeable source of truth the
+# local project.db cache is rebuilt from.
+RECORDS_DIR = os.path.join(".fivehub", "records")
+
 KINDS = ("asset", "shot")
 
 # Suggested task names — any valid identifier is accepted at creation time.

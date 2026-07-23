@@ -45,6 +45,9 @@ contextBridge.exposeInMainWorld("fivehub", {
   refsDelete: (project, name) => ipcRenderer.invoke("hub:refsDelete", project, name),
   jobs: (project, limit) => ipcRenderer.invoke("hub:jobs", project, limit),
   jobCancel: (project, jobId) => ipcRenderer.invoke("hub:jobCancel", project, jobId),
+  gitStatus: (project) => ipcRenderer.invoke("hub:gitStatus", project),
+  gitSetup: (project) => ipcRenderer.invoke("hub:gitSetup", project),
+  gitSync: (project) => ipcRenderer.invoke("hub:gitSync", project),
 
   openProject: (name) => ipcRenderer.invoke("win:project", name),
   openTask: (context) => ipcRenderer.invoke("win:task", context),

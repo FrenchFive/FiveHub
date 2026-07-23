@@ -248,6 +248,9 @@ ipcMain.handle("hub:jobs", (_event, project, limit) =>
 ipcMain.handle("hub:jobCancel", (_event, project, jobId) =>
   runCli(["jobs", project, "--cancel", jobId]),
 );
+ipcMain.handle("hub:gitStatus", (_event, project) => runCli(["git-status", project]));
+ipcMain.handle("hub:gitSetup", (_event, project) => runCli(["git-setup", project]));
+ipcMain.handle("hub:gitSync", (_event, project) => runCli(["git-sync", project]));
 
 ipcMain.handle("win:project", (_event, name) => openProject(name));
 ipcMain.handle("win:task", (_event, context) => openTask(context));

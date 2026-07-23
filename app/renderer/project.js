@@ -478,6 +478,28 @@ async function load() {
     }
     titleRow.appendChild(el("h1", "title", project.name));
 
+    const git = project.git_status || {};
+    if (git.git) {
+      titleRow.appendChild(el("span", "spacer"));
+      const parts = [git.branch || "?"];
+      if (git.remote) parts.push(`↑${git.ahead} ↓${git.behind}`);
+      if (git.dirty) parts.push(`${git.dirty} changed`);
+      titleRow.appendChild(el("span", "label", "GIT · " + parts.join(" · ")));
+      const syncBtn = el("button", "btn", "SYNC");
+      syncBtn.addEventListener("click", async () => {
+        syncBtn.textContent = "SYNCING…";
+        try {
+          const { sync } = await window.fivehub.gitSync(projectName);
+          toast(sync.ok ? "SYNCED" : "SYNC NEEDS ATTENTION — SEE GIT");
+        } catch (error) {
+          toast(cliErrorText(error).toUpperCase());
+        }
+        syncBtn.textContent = "SYNC";
+        load();
+      });
+      titleRow.appendChild(syncBtn);
+    }
+
     fillAssets(project.assets || []);
     fillShots(project.shots || []);
     renderRefs(refs.refs || []);
