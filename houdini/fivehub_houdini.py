@@ -17,7 +17,6 @@ Geometry is translated to the DCC-neutral fivehub model here; everything
 downstream (validation, USD authoring, database) is Houdini-free.
 """
 
-import getpass
 import json
 import os
 import shutil
@@ -36,6 +35,7 @@ from fivehub import config, naming
 from fivehub.geometry import MaterialData, MeshData, PublishRequest, SourceInfo
 from fivehub.project import get_project, parse_scene_path
 from fivehub.publish import FilePublishRequest, publish_files, publish_usd
+from fivehub.user import get_user
 
 FILE_EXPORT_EXTENSION = {"bgeo": ".bgeo.sc", "vdb": ".vdb", "obj": ".obj"}
 
@@ -53,7 +53,7 @@ def _source_info(nodes=()):
         dcc="houdini %s" % hou.applicationVersionString(),
         scene=hou.hipFile.path(),
         nodes=[node.path() for node in nodes],
-        user=getpass.getuser(),
+        user=get_user(),
     )
 
 
@@ -126,7 +126,7 @@ def _save_into(context, notes):
         hou.hipFile.save(path)
         project.register_scene(
             context["kind"], context["entity"], context["task"],
-            version, path, notes, getpass.getuser(),
+            version, path, notes, get_user(),
         )
     except (ValueError, hou.OperationFailed) as error:
         _error(str(error))

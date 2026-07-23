@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from . import config, usdlayers, validation
 from .geometry import SourceInfo
 from .naming import make_identifier
+from .user import get_user
 
 
 @dataclass
@@ -122,6 +123,8 @@ def publish_usd(project, kind, entity, task, request, rule_config=None):
     if not request.asset_name:
         request.asset_name = entity
     request.project = project.name
+    if not request.source.user:
+        request.source.user = get_user()  # every publish is signed
     task_record = project._task_record(kind, entity, task)
     task_id = task_record["id"]
 
@@ -231,6 +234,8 @@ def publish_files(project, kind, entity, task, request, rule_config=None):
     if not request.asset_name:
         request.asset_name = entity
     request.project = project.name
+    if not request.source.user:
+        request.source.user = get_user()  # every publish is signed
     task_record = project._task_record(kind, entity, task)
     task_id = task_record["id"]
 

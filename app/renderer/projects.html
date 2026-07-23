@@ -12,22 +12,14 @@
     <header class="bar">
       <div class="brand">FIVEHUB</div>
       <div class="spacer"></div>
+      <div class="user-pill hidden" id="user"></div>
       <button class="btn solid" id="new-project">NEW PROJECT</button>
     </header>
     <main class="content">
-      <div id="create-form" class="create-panel hidden">
-        <div class="label">CREATE PROJECT</div>
-        <div class="form-row">
-          <input type="text" id="project-name" placeholder="PROJECT NAME" style="flex:1" />
-          <button class="btn" id="pick-image">PICK IMAGE</button>
-          <button class="btn solid" id="create-project">CREATE</button>
-        </div>
-        <div class="label mono" id="image-name"></div>
-      </div>
       <div id="projects"></div>
     </main>
     <footer class="bar">
-      <div class="label" id="hub-path"></div>
+      <div class="mono" id="hub-path"></div>
       <div class="label" id="count"></div>
     </footer>
   </div>

@@ -1,45 +1,104 @@
-// Projects window — every project as a card; create new ones with an image.
+// Projects window — sign in once, browse project cards, create projects
+// through a sheet (name, where the project lives, image).
 
 const projectsBox = document.getElementById("projects");
-const createForm = document.getElementById("create-form");
-const nameInput = document.getElementById("project-name");
-const imageName = document.getElementById("image-name");
+const userPill = document.getElementById("user");
 
-let pickedImage = null;
-
-document.getElementById("new-project").addEventListener("click", () => {
-  createForm.classList.toggle("hidden");
-  if (!createForm.classList.contains("hidden")) nameInput.focus();
-});
-
-document.getElementById("pick-image").addEventListener("click", async () => {
-  pickedImage = await window.fivehub.pickImage();
-  imageName.textContent = pickedImage || "";
-});
-
-document.getElementById("create-project").addEventListener("click", createProject);
-nameInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") createProject();
-});
-
-async function createProject() {
-  const name = nameInput.value.trim();
+async function ensureLogin() {
+  const who = await window.fivehub.whoami();
+  let name = who.user;
   if (!name) {
-    toast("NAME REQUIRED");
-    return;
+    const values = await openSheet({
+      title: "Who is working?",
+      submitLabel: "START",
+      allowCancel: false,
+      build(body) {
+        const field = sheetField(body, "YOUR NAME");
+        const input = el("input");
+        input.type = "text";
+        input.placeholder = who.fallback || "Your name";
+        field.appendChild(input);
+        body.appendChild(
+          el("p", "mono", "Every scene save and publish is signed with this name."),
+        );
+        return () => {
+          const value = input.value.trim() || who.fallback;
+          return value ? { name: value } : null;
+        };
+      },
+    });
+    await window.fivehub.login(values.name);
+    name = values.name;
   }
+  userPill.textContent = name;
+  userPill.classList.remove("hidden");
+}
+
+async function newProjectSheet() {
+  const values = await openSheet({
+    title: "New project",
+    submitLabel: "CREATE",
+    build(body) {
+      const nameField = sheetField(body, "NAME");
+      const nameInput = el("input");
+      nameInput.type = "text";
+      nameInput.placeholder = "e.g. Orbital";
+      nameField.appendChild(nameInput);
+
+      // Where the project lives: hub by default, or any folder the user
+      // picks (shared drive, synced repo, a spot on their disk).
+      const locationField = sheetField(body, "WHERE THE PROJECT LIVES");
+      let location = null;
+      const locationRow = el("div", "form-row");
+      const locationLabel = el("span", "mono", "Hub default (projects/ inside the hub)");
+      locationLabel.style.flex = "1";
+      const pickFolderBtn = el("button", "btn", "CHOOSE FOLDER");
+      pickFolderBtn.addEventListener("click", async () => {
+        const picked = await window.fivehub.pickFolder();
+        if (picked) {
+          location = picked;
+          locationLabel.textContent = picked;
+        }
+      });
+      locationRow.appendChild(locationLabel);
+      locationRow.appendChild(pickFolderBtn);
+      locationField.appendChild(locationRow);
+
+      const imageField = sheetField(body, "IMAGE");
+      let image = null;
+      const imageRow = el("div", "form-row");
+      const imageLabel = el("span", "mono", "Optional — a placeholder is generated");
+      imageLabel.style.flex = "1";
+      const pickImageBtn = el("button", "btn", "CHOOSE IMAGE");
+      pickImageBtn.addEventListener("click", async () => {
+        const picked = await window.fivehub.pickImage();
+        if (picked) {
+          image = picked;
+          imageLabel.textContent = picked;
+        }
+      });
+      imageRow.appendChild(imageLabel);
+      imageRow.appendChild(pickImageBtn);
+      imageField.appendChild(imageRow);
+
+      return () => {
+        const name = nameInput.value.trim();
+        if (!name) return null;
+        return { name, image, location };
+      };
+    },
+  });
+  if (!values) return;
   try {
-    await window.fivehub.projectCreate(name, pickedImage);
-    nameInput.value = "";
-    pickedImage = null;
-    imageName.textContent = "";
-    createForm.classList.add("hidden");
+    await window.fivehub.projectCreate(values.name, values.image, values.location);
     toast("PROJECT CREATED");
     await load();
   } catch (error) {
-    toast(String(error.message || error).replace(/^Error[:] ?/i, "").toUpperCase());
+    toast(cliErrorText(error).toUpperCase());
   }
 }
+
+document.getElementById("new-project").addEventListener("click", newProjectSheet);
 
 function card(project) {
   const node = el("div", "card");
@@ -53,13 +112,13 @@ function card(project) {
   }
   node.appendChild(el("div", "name", project.name));
   const counts = project.counts || {};
-  node.appendChild(
-    el(
-      "div",
-      "meta",
-      `${counts.assets || 0} ASSETS · ${counts.shots || 0} SHOTS · ${counts.publishes || 0} PUBLISHES`,
-    ),
-  );
+  const bits = [
+    `${counts.assets || 0} ASSETS`,
+    `${counts.shots || 0} SHOTS`,
+    `${counts.publishes || 0} PUBLISHES`,
+  ];
+  if (project.external) bits.push("LINKED");
+  node.appendChild(el("div", "meta", bits.join(" · ")));
   node.addEventListener("click", () => window.fivehub.openProject(project.name));
   return node;
 }
@@ -81,8 +140,11 @@ async function load() {
       for (let i = 0; i < 4; i += 1) blobs.appendChild(el("span"));
       box.appendChild(blobs);
       box.appendChild(el("div", null, "No projects yet"));
-      box.appendChild(el("div", null, "Create one above — or seed the demo"));
-      const demoBtn = el("button", "btn solid", "SEED DEMO PROJECT");
+      box.appendChild(el("div", null, "Create one — or seed the demo"));
+      const buttons = el("div", "row");
+      const createBtn = el("button", "btn solid", "NEW PROJECT");
+      createBtn.addEventListener("click", newProjectSheet);
+      const demoBtn = el("button", "btn", "SEED DEMO PROJECT");
       demoBtn.addEventListener("click", async () => {
         demoBtn.textContent = "PUBLISHING…";
         try {
@@ -94,7 +156,9 @@ async function load() {
           showError(projectsBox, error);
         }
       });
-      box.appendChild(demoBtn);
+      buttons.appendChild(createBtn);
+      buttons.appendChild(demoBtn);
+      box.appendChild(buttons);
       projectsBox.appendChild(box);
       return;
     }
@@ -106,4 +170,4 @@ async function load() {
   }
 }
 
-load();
+ensureLogin().then(load);

@@ -469,18 +469,6 @@ tbody tr:hover {
   display: none !important;
 }
 
-.create-panel {
-  background: var(--surface);
-  border: var(--hairline);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-soft);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  margin-bottom: 24px;
-}
-
 .form-row {
   display: flex;
   gap: 10px;
@@ -489,6 +477,109 @@ tbody tr:hover {
 
 .form-row input[type="text"] {
   flex: 1;
+}
+
+/* -- modal sheets (all creation flows live here, not inline) ----------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 11, 12, 0.26);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  opacity: 0;
+  transition: opacity 0.24s var(--spring);
+  z-index: 90;
+}
+
+.overlay.show {
+  opacity: 1;
+}
+
+.sheet {
+  background: var(--surface);
+  border: var(--hairline);
+  border-radius: 24px;
+  box-shadow: var(--shadow-lift);
+  width: min(480px, 100%);
+  padding: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  transform: translateY(20px) scale(0.96);
+  transition: transform 0.34s var(--pop);
+}
+
+.overlay.show .sheet {
+  transform: none;
+}
+
+.sheet-title {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sheet-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sheet-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn.round {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.glyph {
+  display: inline-flex;
+  margin-right: 7px;
+}
+
+.glyph svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--fill);
+  border-radius: 999px;
+  padding: 7px 14px;
+}
+
+.user-pill::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink);
 }
 
 .columns {
@@ -506,9 +597,89 @@ tbody tr:hover {
 
 .section-head {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
   padding: 0 4px 12px;
+}
+
+.chip.toggle {
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+
+.chip.toggle.on {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+
+.chip.add {
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  color: var(--ink-2);
+}
+
+.chip.add:hover {
+  background: var(--ink);
+  border-style: solid;
+  color: var(--surface);
+}
+
+/* -- activity (project-scoped feed) ------------------------------------ */
+
+.activity-list {
+  background: var(--surface);
+  border: var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+.activity-row {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  padding: 12px 18px;
+  font-size: 12.5px;
+  transition: background var(--fast) var(--spring);
+}
+
+.activity-row + .activity-row {
+  border-top: 1px solid var(--line);
+}
+
+.activity-row:hover {
+  background: var(--wash);
+}
+
+.activity-type {
+  min-width: 64px;
+  text-align: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  padding: 3px 0;
+}
+
+.activity-type.blocked {
+  background: var(--red);
+  border-color: var(--red);
+  color: #ffffff;
+}
+
+.activity-row .what {
+  flex: 1;
+  font-weight: 500;
+}
+
+.activity-row .who,
+.activity-row .when {
+  color: var(--ink-2);
+  font-size: 11.5px;
+  white-space: nowrap;
 }
 
 .entity-list {
