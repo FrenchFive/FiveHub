@@ -11,7 +11,7 @@ import os
 import sys
 
 from . import __version__, config
-from .project import create_project, get_project, list_projects
+from .project import create_project, get_project, list_projects, remove_project
 from .report import ValidationReport, utc_now
 from .user import get_user, logged_in, set_user
 
@@ -163,6 +163,48 @@ def cmd_demo(root, _args):
     return {"results": run_demo(root)}
 
 
+def cmd_project_remove(root, args):
+    return {"result": remove_project(args.name, root, delete_files=args.delete_files)}
+
+
+def cmd_entity_delete(root, args):
+    get_project(args.project, root).delete_entity(args.kind, args.name)
+    return {"deleted": {"project": args.project, "kind": args.kind, "name": args.name}}
+
+
+def cmd_task_delete(root, args):
+    get_project(args.project, root).delete_task(args.kind, args.entity, args.task)
+    return {"deleted": {"project": args.project, "entity": args.entity, "task": args.task}}
+
+
+def cmd_scene_delete(root, args):
+    row = get_project(args.project, root).delete_scene(
+        args.kind, args.entity, args.task, args.version
+    )
+    return {"deleted": row}
+
+
+def cmd_scene_notes(root, args):
+    get_project(args.project, root).set_scene_notes(
+        args.kind, args.entity, args.task, args.version, args.notes
+    )
+    return {"updated": {"version": args.version, "notes": args.notes}}
+
+
+def cmd_publish_delete(root, args):
+    row = get_project(args.project, root).delete_publish(
+        args.kind, args.entity, args.task, args.format, args.version
+    )
+    return {"deleted": row}
+
+
+def cmd_publish_comment(root, args):
+    get_project(args.project, root).set_publish_comment(
+        args.kind, args.entity, args.task, args.format, args.version, args.comment
+    )
+    return {"updated": {"version": args.version, "comment": args.comment}}
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog="fivehub", description=__doc__)
     parser.add_argument("--hub", help="hub root override (defaults to $FIVEHUB_ROOT)")
@@ -246,6 +288,66 @@ def build_parser():
     commands.add_parser(
         "demo", help="seed a demo project (incl. a failing publish)"
     ).set_defaults(func=cmd_demo)
+
+    remove = commands.add_parser(
+        "project-remove", help="unlink an external project / delete a local one"
+    )
+    remove.add_argument("name")
+    remove.add_argument("--delete-files", action="store_true")
+    remove.set_defaults(func=cmd_project_remove)
+
+    entity_delete = commands.add_parser("entity-delete", help="delete an asset or shot")
+    entity_delete.add_argument("project")
+    entity_delete.add_argument("kind", choices=config.KINDS)
+    entity_delete.add_argument("name")
+    entity_delete.set_defaults(func=cmd_entity_delete)
+
+    task_delete = commands.add_parser("task-delete", help="delete a task")
+    task_delete.add_argument("project")
+    task_delete.add_argument("kind", choices=config.KINDS)
+    task_delete.add_argument("entity")
+    task_delete.add_argument("task")
+    task_delete.set_defaults(func=cmd_task_delete)
+
+    scene_delete = commands.add_parser("scene-delete", help="delete a scene version")
+    scene_delete.add_argument("project")
+    scene_delete.add_argument("kind", choices=config.KINDS)
+    scene_delete.add_argument("entity")
+    scene_delete.add_argument("task")
+    scene_delete.add_argument("version", type=int)
+    scene_delete.set_defaults(func=cmd_scene_delete)
+
+    scene_notes = commands.add_parser("scene-notes", help="edit a scene version's notes")
+    scene_notes.add_argument("project")
+    scene_notes.add_argument("kind", choices=config.KINDS)
+    scene_notes.add_argument("entity")
+    scene_notes.add_argument("task")
+    scene_notes.add_argument("version", type=int)
+    scene_notes.add_argument("--notes", default="")
+    scene_notes.set_defaults(func=cmd_scene_notes)
+
+    publish_delete = commands.add_parser(
+        "publish-delete", help="delete a publish version"
+    )
+    publish_delete.add_argument("project")
+    publish_delete.add_argument("kind", choices=config.KINDS)
+    publish_delete.add_argument("entity")
+    publish_delete.add_argument("task")
+    publish_delete.add_argument("format", choices=config.FORMATS)
+    publish_delete.add_argument("version", type=int)
+    publish_delete.set_defaults(func=cmd_publish_delete)
+
+    publish_comment = commands.add_parser(
+        "publish-comment", help="edit a publish version's comment"
+    )
+    publish_comment.add_argument("project")
+    publish_comment.add_argument("kind", choices=config.KINDS)
+    publish_comment.add_argument("entity")
+    publish_comment.add_argument("task")
+    publish_comment.add_argument("format", choices=config.FORMATS)
+    publish_comment.add_argument("version", type=int)
+    publish_comment.add_argument("--comment", default="")
+    publish_comment.set_defaults(func=cmd_publish_comment)
     return parser
 
 

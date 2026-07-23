@@ -45,17 +45,19 @@ of grids of lines, secondary facts in gray.
 
 ### The red rules
 
-Red is allowed in exactly three places:
+Red is allowed in exactly four places:
 
 1. The **FAIL** status pill on a blocked publish.
 2. **Error-severity** rule failures inside a validation report
    (status pill + severity tag). Warning failures stay monochrome.
 3. The **blocked-publish verdict** — rendered as the one black card in
    the system (`--ink` ground, red type), so black exists to showcase red.
+4. **Destructive actions**: delete/unlink items inside ⋯ menus and the
+   confirm button of a destructive sheet — red marks the point of no return.
 
 Red is never used for: hover states, selection, branding, icons,
-decorations, warnings, links, or anything that is not a blocking problem.
-When in doubt: not red.
+decorations, warnings, links, or anything that is not a blocking problem
+or an irreversible action. When in doubt: not red.
 
 ### Grays
 
@@ -124,6 +126,13 @@ shared SVG filter (`#goo`), drifting on slow alternating keyframes.
 - **Buttons** — pills. Default: white, hairline, ink text. Primary
   (`.btn.solid`): ink ground, white text — at most one primary per view.
   Round `+` buttons (`.btn.round`) are the only entry to creation flows.
+  **Icon buttons** (`.btn.icon`) are circular and glyph-only with a
+  tooltip — the Houdini launch is just the swirl, nothing more.
+- **Overflow menus (⋯)** — every row and card keeps at most one visible
+  primary action; everything secondary (copy, reveal, edit, send) lives
+  behind a ⋯ button (`dotsButton`) that opens a popover menu. Destructive
+  entries sit last, below a separator, in red (red rule 4), and always go
+  through a confirm sheet with a red confirm button (`.btn.danger`).
 - **Sheets** — all creation and input happens in modal sheets (centered
   card, dimmed blurred backdrop). Never inline input rows in lists;
   a `+` opens a sheet with everything that creation needs. Escape and

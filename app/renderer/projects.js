@@ -110,7 +110,50 @@ function card(project) {
   } else {
     node.appendChild(el("div", "thumb empty", "NO IMAGE"));
   }
-  node.appendChild(el("div", "name", project.name));
+
+  const head = el("div", "card-head");
+  head.appendChild(el("div", "name", project.name));
+  head.appendChild(
+    dotsButton(() => [
+      { label: "Open", action: () => window.fivehub.openProject(project.name) },
+      { label: "Reveal files", action: () => window.fivehub.reveal(project.path) },
+      "-",
+      project.external
+        ? {
+            label: "Unlink from hub",
+            danger: true,
+            action: async () => {
+              const ok = await confirmSheet(
+                `Unlink ${project.name}?`,
+                "The project disappears from the hub. Its files at " +
+                  project.path + " are kept.",
+                "UNLINK",
+              );
+              if (!ok) return;
+              await window.fivehub.projectRemove(project.name, false);
+              toast("PROJECT UNLINKED");
+              load();
+            },
+          }
+        : {
+            label: "Delete project",
+            danger: true,
+            action: async () => {
+              const ok = await confirmSheet(
+                `Delete project ${project.name}?`,
+                "Every asset, shot, scene and publish in it is removed from disk. This cannot be undone.",
+                "DELETE PROJECT",
+              );
+              if (!ok) return;
+              await window.fivehub.projectRemove(project.name, true);
+              toast("PROJECT DELETED");
+              load();
+            },
+          },
+    ]),
+  );
+  node.appendChild(head);
+
   const counts = project.counts || {};
   const bits = [
     `${counts.assets || 0} ASSETS`,

@@ -62,7 +62,7 @@ function houdiniGlyph() {
 // Modal sheet. `build(body)` fills the form and returns a collect function:
 // return the values object to submit, or null to block (missing input).
 // Resolves with the values, or null when dismissed (unless allowCancel:false).
-function openSheet({ title, submitLabel, build, allowCancel = true }) {
+function openSheet({ title, submitLabel, build, allowCancel = true, danger = false }) {
   return new Promise((resolve) => {
     const overlay = el("div", "overlay");
     const sheet = el("div", "sheet");
@@ -98,7 +98,7 @@ function openSheet({ title, submitLabel, build, allowCancel = true }) {
         if (event.target === overlay) close(null);
       });
     }
-    const submitBtn = el("button", "btn solid", submitLabel);
+    const submitBtn = el("button", danger ? "btn danger" : "btn solid", submitLabel);
     submitBtn.addEventListener("click", submit);
     footer.appendChild(submitBtn);
     sheet.appendChild(footer);
@@ -117,4 +117,78 @@ function sheetField(body, labelText) {
   field.appendChild(el("span", "label", labelText));
   body.appendChild(field);
   return field;
+}
+
+// Destructive confirmation: same sheet, red confirm button.
+function confirmSheet(title, message, confirmLabel) {
+  return openSheet({
+    title,
+    submitLabel: confirmLabel || "DELETE",
+    danger: true,
+    build(body) {
+      body.appendChild(el("p", "mono", message));
+      return () => ({ confirmed: true });
+    },
+  });
+}
+
+// -- overflow (three-dots) menus ----------------------------------------
+
+let activeMenu = null;
+
+function closeMenu() {
+  if (!activeMenu) return;
+  activeMenu.remove();
+  activeMenu = null;
+  document.removeEventListener("click", closeMenu, true);
+  document.removeEventListener("keydown", menuKey, true);
+}
+
+function menuKey(event) {
+  if (event.key === "Escape") closeMenu();
+}
+
+function openMenu(anchor, items) {
+  closeMenu();
+  const menu = el("div", "menu");
+  menu.setAttribute("role", "menu");
+  for (const item of items) {
+    if (item === "-") {
+      menu.appendChild(el("div", "menu-sep"));
+      continue;
+    }
+    const row = el("button", "menu-item" + (item.danger ? " danger" : ""), item.label);
+    row.setAttribute("role", "menuitem");
+    row.addEventListener("click", (event) => {
+      event.stopPropagation();
+      closeMenu();
+      item.action();
+    });
+    menu.appendChild(row);
+  }
+  document.body.appendChild(menu);
+  const rect = anchor.getBoundingClientRect();
+  const size = menu.getBoundingClientRect();
+  menu.style.top =
+    Math.min(rect.bottom + 6, window.innerHeight - size.height - 12) + "px";
+  menu.style.left =
+    Math.max(12, Math.min(rect.right - size.width, window.innerWidth - size.width - 12)) +
+    "px";
+  activeMenu = menu;
+  setTimeout(() => {
+    document.addEventListener("click", closeMenu, true);
+    document.addEventListener("keydown", menuKey, true);
+  }, 0);
+}
+
+// A ⋯ button. `itemsFactory` is called on open so labels/actions stay fresh.
+function dotsButton(itemsFactory) {
+  const button = el("button", "btn icon dots", "⋯");
+  button.title = "More";
+  button.setAttribute("aria-label", "More options");
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openMenu(button, itemsFactory());
+  });
+  return button;
 }

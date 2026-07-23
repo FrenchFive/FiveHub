@@ -23,6 +23,20 @@ contextBridge.exposeInMainWorld("fivehub", {
     ipcRenderer.invoke("hub:send", context, format, version),
   demo: () => ipcRenderer.invoke("hub:demo"),
 
+  projectRemove: (name, deleteFiles) =>
+    ipcRenderer.invoke("hub:projectRemove", name, deleteFiles),
+  entityDelete: (project, kind, name) =>
+    ipcRenderer.invoke("hub:entityDelete", project, kind, name),
+  taskDelete: (context) => ipcRenderer.invoke("hub:taskDelete", context),
+  sceneDelete: (context, version) =>
+    ipcRenderer.invoke("hub:sceneDelete", context, version),
+  sceneNotes: (context, version, notes) =>
+    ipcRenderer.invoke("hub:sceneNotes", context, version, notes),
+  publishDelete: (context, format, version) =>
+    ipcRenderer.invoke("hub:publishDelete", context, format, version),
+  publishComment: (context, format, version, comment) =>
+    ipcRenderer.invoke("hub:publishComment", context, format, version, comment),
+
   openProject: (name) => ipcRenderer.invoke("win:project", name),
   openTask: (context) => ipcRenderer.invoke("win:task", context),
   openReport: (path) => ipcRenderer.invoke("win:report", path),

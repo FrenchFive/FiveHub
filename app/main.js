@@ -177,6 +177,40 @@ ipcMain.handle("hub:send", (_event, context, format, version) => {
 });
 ipcMain.handle("hub:demo", () => runCli(["demo"]));
 
+ipcMain.handle("hub:projectRemove", (_event, name, deleteFiles) =>
+  runCli(["project-remove", name, ...(deleteFiles ? ["--delete-files"] : [])]),
+);
+ipcMain.handle("hub:entityDelete", (_event, project, kind, name) =>
+  runCli(["entity-delete", project, kind, name]),
+);
+ipcMain.handle("hub:taskDelete", (_event, context) =>
+  runCli(["task-delete", context.project, context.kind, context.entity, context.task]),
+);
+ipcMain.handle("hub:sceneDelete", (_event, context, version) =>
+  runCli([
+    "scene-delete", context.project, context.kind, context.entity, context.task,
+    String(version),
+  ]),
+);
+ipcMain.handle("hub:sceneNotes", (_event, context, version, notes) =>
+  runCli([
+    "scene-notes", context.project, context.kind, context.entity, context.task,
+    String(version), "--notes", notes || "",
+  ]),
+);
+ipcMain.handle("hub:publishDelete", (_event, context, format, version) =>
+  runCli([
+    "publish-delete", context.project, context.kind, context.entity, context.task,
+    format, String(version),
+  ]),
+);
+ipcMain.handle("hub:publishComment", (_event, context, format, version, comment) =>
+  runCli([
+    "publish-comment", context.project, context.kind, context.entity, context.task,
+    format, String(version), "--comment", comment || "",
+  ]),
+);
+
 ipcMain.handle("win:project", (_event, name) => openProject(name));
 ipcMain.handle("win:task", (_event, context) => openTask(context));
 ipcMain.handle("win:report", (_event, reportPath) => openReport(reportPath));

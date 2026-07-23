@@ -267,6 +267,55 @@ class ProjectDB:
         with self._connect() as conn:
             return [dict(row) for row in conn.execute(query, (int(limit),)).fetchall()]
 
+    # -- edits & deletions ----------------------------------------------
+
+    def update_scene_notes(self, task_id, version, notes):
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE scene SET notes = ? WHERE task_id = ? AND version = ?",
+                (notes or "", task_id, int(version)),
+            )
+
+    def update_publish_comment(self, task_id, format_name, version, comment):
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE publish SET comment = ? WHERE task_id = ? AND format = ?"
+                " AND version = ?",
+                (comment or "", task_id, format_name, int(version)),
+            )
+
+    def delete_scene(self, task_id, version):
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM scene WHERE task_id = ? AND version = ?",
+                (task_id, int(version)),
+            ).fetchone()
+            if row is None:
+                raise ValueError("no scene v%03d on that task" % int(version))
+            conn.execute("DELETE FROM scene WHERE id = ?", (row["id"],))
+            return dict(row)
+
+    def delete_publish(self, task_id, format_name, version):
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM publish WHERE task_id = ? AND format = ? AND version = ?",
+                (task_id, format_name, int(version)),
+            ).fetchone()
+            if row is None:
+                raise ValueError(
+                    "no %s publish v%03d on that task" % (format_name, int(version))
+                )
+            conn.execute("DELETE FROM publish WHERE id = ?", (row["id"],))
+            return dict(row)
+
+    def delete_task(self, task_id):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM task WHERE id = ?", (task_id,))
+
+    def delete_entity(self, entity_id):
+        with self._connect() as conn:
+            conn.execute("DELETE FROM entity WHERE id = ?", (entity_id,))
+
     def counts(self):
         with self._connect() as conn:
             entities = conn.execute(
