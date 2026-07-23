@@ -1261,6 +1261,93 @@ class CliTests(unittest.TestCase):
         )
 
 
+class VersionBumpTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "bump_version", os.path.join(REPO, "scripts", "bump_version.py")
+        )
+        cls.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.mod)
+
+    def test_thresholds(self):
+        self.assertEqual(self.mod.classify(0), "patch")
+        self.assertEqual(self.mod.classify(99), "patch")
+        self.assertEqual(self.mod.classify(100), "minor")
+        self.assertEqual(self.mod.classify(499), "minor")
+        self.assertEqual(self.mod.classify(500), "major")
+        self.assertEqual(self.mod.classify(12000), "major")
+
+    def test_bump_math(self):
+        self.assertEqual(self.mod.bump("3.0.0", "patch"), "3.0.1")
+        self.assertEqual(self.mod.bump("3.0.9", "patch"), "3.0.10")
+        self.assertEqual(self.mod.bump("3.2.7", "minor"), "3.3.0")
+        self.assertEqual(self.mod.bump("3.2.7", "major"), "4.0.0")
+
+    def test_apply_rewrites_both_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            init_path = os.path.join(tmp, "__init__.py")
+            with open(init_path, "w") as handle:
+                handle.write('"""doc"""\n\n__version__ = "3.0.0"\n\nX = 1\n')
+            package_path = os.path.join(tmp, "package.json")
+            with open(package_path, "w") as handle:
+                json.dump({"name": "fivehub-app", "version": "3.0.0"}, handle)
+
+            self.mod.apply("3.1.0", init_path, package_path)
+
+            with open(init_path) as handle:
+                content = handle.read()
+            self.assertIn('__version__ = "3.1.0"', content)
+            self.assertIn("X = 1", content)  # rest of the file untouched
+            with open(package_path) as handle:
+                self.assertEqual(json.load(handle)["version"], "3.1.0")
+
+    def test_real_files_are_parseable(self):
+        # The script must find the live version and agree with the package.
+        version = self.mod.read_version()
+        with open(os.path.join(REPO, "app", "package.json")) as handle:
+            self.assertEqual(json.load(handle)["version"], version)
+
+
+class InstallerTests(unittest.TestCase):
+    def test_one_shot_installer_offline(self):
+        # Network/npm/pip steps skipped: the installer must still succeed
+        # and write the Houdini package for every prefs dir it finds.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            os.makedirs(os.path.join(home, "houdini20.5"))
+            os.makedirs(os.path.join(home, "houdini21.0"))
+            env = dict(os.environ, HOME=home)
+            completed = subprocess.run(
+                [sys.executable, "install.py", "--no-pip", "--no-fonts",
+                 "--no-splash", "--no-app"],
+                cwd=REPO, capture_output=True, text=True, env=env, timeout=120,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            for version in ("houdini20.5", "houdini21.0"):
+                package = os.path.join(home, version, "packages", "fivehub.json")
+                self.assertTrue(os.path.isfile(package), package)
+            self.assertIn("FIVE HUB menu", completed.stdout)
+
+    def test_houdini_installer_auto_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            os.makedirs(os.path.join(home, "houdini20.5"))
+            env = dict(os.environ, HOME=home)
+            completed = subprocess.run(
+                [sys.executable, os.path.join("houdini", "install.py"), "--auto"],
+                cwd=REPO, capture_output=True, text=True, env=env, timeout=60,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(
+                os.path.isfile(
+                    os.path.join(home, "houdini20.5", "packages", "fivehub.json")
+                )
+            )
+
+
 class ThumbTests(unittest.TestCase):
     def test_png_magic(self):
         with tempfile.TemporaryDirectory() as tmp:
