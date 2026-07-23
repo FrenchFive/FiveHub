@@ -34,11 +34,23 @@ GRAY = (110, 110, 115)
 # Centers sit far enough apart that lobes stay readable, close enough that
 # liquid necks form between them.
 BLOBS = [
-    (905, 175, 118), (1105, 300, 96), (872, 400, 92),
-    (1035, 505, 74), (1180, 130, 62), (752, 292, 52), (935, 585, 38),
+    (905, 155, 116), (1100, 275, 96), (868, 372, 90),
+    (1030, 470, 76), (1180, 110, 64), (748, 268, 52), (940, 545, 40),
 ]
-INK_BLOBS = [(688, 478, 30), (645, 525, 17), (728, 541, 12)]
+# A second light cluster bleeding in from the top-left corner.
+BLOBS_CORNER = [(60, -40, 120), (215, 20, 74), (150, 130, 52), (305, 95, 30)]
+INK_BLOBS = [(688, 448, 30), (645, 495, 17), (728, 511, 12)]
 GOOP_THRESHOLD = 1.22
+
+# Floating bits: hairline rings and satellite dots (x, y, radius).
+RINGS = [(618, 108, 42), (762, 196, 16), (1168, 452, 26)]
+DOTS_GRAY = [(576, 448, 8), (498, 96, 6), (1108, 545, 7)]
+DOTS_INK = [(1002, 168, 13), (388, 486, 5)]
+
+# The ink band along the bottom: Houdini draws its own version, license
+# and loading text over the splash — this gives that overlay a home and
+# keeps it readable whatever build the artist launches.
+BAND_HEIGHT = 108
 
 
 def _font_dirs():
@@ -151,38 +163,64 @@ def _pill(draw, x, y, text, font, filled=False, pad_x=22, height=46):
 
 def render(out_path, houdini_version="", license_type="", user="", hub="",
            width=WIDTH, height=HEIGHT):
-    """Render the splash PNG. Empty facts are simply left off."""
+    """Render the splash PNG.
+
+    The default art bakes NO Houdini version or license — Houdini itself
+    overlays the launching build's version, license and loading text on
+    the splash, over the ink band at the bottom. Pass ``houdini_version``
+    / ``license_type`` only when you deliberately want them in the art.
+    """
     from PIL import Image, ImageDraw
 
     fonts, font_paths = _load_fonts(
-        {"black": int(height * 0.215), "medium": int(height * 0.038),
-         "regular@pill": int(height * 0.030), "regular@small": int(height * 0.024)}
+        {"black": int(height * 0.265), "black@brand": int(height * 0.054),
+         "medium": int(height * 0.034), "regular@pill": int(height * 0.030),
+         "regular@small": int(height * 0.023)}
     )
     scale = height / float(HEIGHT)
 
     image = Image.new("RGB", (width, height), WASH)
 
+    # Goop fields: big cluster right, corner cluster top-left, ink drip.
     goop = Image.new("RGB", (width, height), GOOP)
     image.paste(goop, (0, 0), _goop_layer(width, height, BLOBS, GOOP_THRESHOLD))
+    image.paste(goop, (0, 0), _goop_layer(width, height, BLOBS_CORNER, 1.1))
     ink_goop = Image.new("RGB", (width, height), INK)
     image.paste(ink_goop, (0, 0), _goop_layer(width, height, INK_BLOBS))
 
     draw = ImageDraw.Draw(image)
     margin = int(90 * scale)
 
-    # FIVE HUB — always Satoshi Black.
-    title_y = int(150 * scale)
-    draw.text((margin - int(8 * scale), title_y), "FIVE HUB",
+    # Floating bits — rings and satellite dots.
+    ring_width = max(2, int(3 * scale))
+    for x, y, radius in RINGS:
+        box = tuple(int(v * scale) for v in (x - radius, y - radius,
+                                             x + radius, y + radius))
+        draw.ellipse(box, outline=(200, 200, 205), width=ring_width)
+    for dots, color in ((DOTS_GRAY, (208, 208, 213)), (DOTS_INK, INK)):
+        for x, y, radius in dots:
+            box = tuple(int(v * scale) for v in (x - radius, y - radius,
+                                                 x + radius, y + radius))
+            draw.ellipse(box, fill=color)
+
+    # Small FIVE HUB (Satoshi Black, ink) over a big "Houdini" —
+    # it is Houdini being launched; FIVE HUB is the suit it wears.
+    _tracked_text(
+        draw, (margin, int(118 * scale)), "FIVE HUB",
+        fonts["black@brand"], INK, tracking=int(7 * scale),
+    )
+    draw.text((margin - int(10 * scale), int(155 * scale)), "Houdini",
               font=fonts["black"], fill=INK)
 
     _tracked_text(
-        draw, (margin, int(365 * scale)), "PIPELINE FOR HOUDINI",
-        fonts["medium"], GRAY, tracking=int(9 * scale),
+        draw, (margin, int(388 * scale)), "RUNNING THE FIVE HUB PIPELINE",
+        fonts["medium"], GRAY, tracking=int(8 * scale),
     )
 
-    # The facts, as pills. License type gets the solid pill.
+    # Our facts as pills. Houdini's own version/license text is overlaid
+    # by Houdini in the band below — only bake it when explicitly asked.
     pill_font = fonts["regular@pill"]
-    pill_y = int(520 * scale)
+    pill_y = int(460 * scale)
     x = margin
     x = _pill(draw, x, pill_y, "FIVEHUB %s" % __version__, pill_font) + int(14 * scale)
     if houdini_version:
@@ -191,13 +229,24 @@ def render(out_path, houdini_version="", license_type="", user="", hub="",
     if license_type:
         _pill(draw, x, pill_y, license_type.upper(), pill_font, filled=True)
 
-    footer = "validated usd publishes · versioned scenes · signed work"
+    # Ink band: Houdini overlays its version/license/loading text here
+    # (bottom-left) — our credits sit right-aligned, out of its way.
+    band_top = height - int(BAND_HEIGHT * scale)
+    draw.rectangle((0, band_top, width, height), fill=INK)
+    small = fonts["regular@small"]
+    lines = ["FIVE HUB — pipeline for houdini"]
+    facts = "validated usd publishes · versioned scenes · signed work"
     if user:
-        footer = "signed in — %s · %s" % (user, footer)
+        facts = "signed in — %s · %s" % (user, facts)
     if hub:
-        footer += " · %s" % hub
-    draw.text((margin, int(600 * scale)), footer,
-              font=fonts["regular@small"], fill=GRAY)
+        facts += " · %s" % hub
+    lines.append(facts)
+    y = band_top + int(26 * scale)
+    for line in lines:
+        box = draw.textbbox((0, 0), line, font=small)
+        draw.text((width - margin - (box[2] - box[0]), y), line,
+                  font=small, fill=(200, 200, 205))
+        y += int(30 * scale)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     image.save(out_path, "PNG")
@@ -240,8 +289,10 @@ def run(_root, args):
 
 @houdini_tool("Regenerate FiveHub Splash")
 def regenerate_from_session():
-    """Bake the *running* session's truth into the splash: real build
-    number and real license category."""
+    """Refresh the splash with this artist's login and hub. The Houdini
+    build and license are NOT baked — Houdini overlays the launching
+    session's own version text on the splash, so the art always matches
+    whatever build starts up."""
     import hou
 
     try:
@@ -254,25 +305,12 @@ def regenerate_from_session():
         )
         return None
 
-    category = hou.licenseCategory()
-    license_map = {
-        hou.licenseCategoryType.Commercial: "FX",
-        hou.licenseCategoryType.Indie: "INDIE",
-        hou.licenseCategoryType.Education: "EDU",
-        hou.licenseCategoryType.ApprenticeHD: "NC",
-        hou.licenseCategoryType.Apprentice: "NC",
-    }
     from ..user import get_user
 
-    result = render(
-        default_output(),
-        houdini_version=hou.applicationVersionString(),
-        license_type=license_map.get(category, str(category).split(".")[-1].upper()),
-        user=get_user(),
-        hub=config.ensure_hub(),
-    )
+    result = render(default_output(), user=get_user(), hub=config.ensure_hub())
     hou.ui.displayMessage(
-        "Splash regenerated — it shows on the next Houdini launch.\n%s"
+        "Splash regenerated — it shows on the next Houdini launch.\n"
+        "(Houdini draws its own version and license text over the band.)\n%s"
         % result["path"],
         title="FIVE HUB",
     )
