@@ -10,7 +10,7 @@
 <body>
   <div class="page">
     <header class="bar">
-      <div class="brand">FIVEHUB</div>
+      <button class="btn" id="back" title="Back to all projects">‹ PROJECTS</button>
       <input type="text" id="search" placeholder="Search assets & shots" style="flex:1; max-width: 320px" />
       <div class="spacer"></div>
       <div class="label" id="counts"></div>
@@ -19,37 +19,41 @@
       <div class="stack">
         <div class="row" id="title-row"></div>
         <div class="columns">
-          <section>
-            <div class="section-head">
-              <div class="label">ASSETS</div>
-              <button class="btn round" id="add-asset" title="New asset" aria-label="New asset">+</button>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">ASSETS</div>
+              <button class="btn small" id="add-asset">+ NEW ASSET</button>
+              <span class="spacer"></span>
+              <span class="label" id="assets-count"></span>
             </div>
             <div id="assets" class="entity-list"></div>
           </section>
-          <section>
-            <div class="section-head">
-              <div class="label">SHOTS</div>
-              <button class="btn round" id="add-shot" title="New shot" aria-label="New shot">+</button>
+          <section class="panel">
+            <div class="panel-head">
+              <div class="panel-title">SHOTS</div>
+              <button class="btn small" id="add-shot">+ NEW SHOT</button>
+              <span class="spacer"></span>
+              <span class="label" id="shots-count"></span>
             </div>
             <div id="shots" class="entity-list"></div>
           </section>
         </div>
-        <section>
-          <div class="section-head">
-            <div class="label">REFERENCES</div>
-            <button class="btn round" id="add-refs" title="Add reference images" aria-label="Add references">+</button>
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title">REFERENCES</div>
+            <button class="btn small" id="add-refs">+ ADD IMAGES & FILES</button>
           </div>
           <div id="refs"></div>
         </section>
-        <section>
-          <div class="section-head">
-            <div class="label">JOBS — RENDERS & ENCODES</div>
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title">RENDER JOBS</div>
           </div>
           <div id="jobs"></div>
         </section>
-        <section>
-          <div class="section-head">
-            <div class="label">ACTIVITY — THIS PROJECT ONLY</div>
+        <section class="panel">
+          <div class="panel-head">
+            <div class="panel-title">ACTIVITY</div>
           </div>
           <div id="activity"></div>
         </section>

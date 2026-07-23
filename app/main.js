@@ -72,8 +72,12 @@ function runCli(args) {
 }
 
 // -- windows -------------------------------------------------------------
+//
+// ONE main window: the projects, project and task pages navigate in place
+// (location.href) so browsing never spawns windows. Only validation
+// reports pop a separate small window — documents you read side by side.
 
-const namedWindows = new Map();
+let mainWindow = null;
 
 function createWindow(page, query, options) {
   const win = new BrowserWindow({
@@ -93,42 +97,17 @@ function createWindow(page, query, options) {
   return win;
 }
 
-function openKeyed(key, factory) {
-  const existing = namedWindows.get(key);
-  if (existing && !existing.isDestroyed()) {
-    existing.focus();
+function openMain() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.focus();
     return;
   }
-  const win = factory();
-  namedWindows.set(key, win);
-  win.on("closed", () => namedWindows.delete(key));
-}
-
-function openProjects() {
-  openKeyed("projects", () =>
-    createWindow("projects.html", {}, { width: 1200, height: 820, title: "FIVEHUB" }),
-  );
-}
-
-function openProject(name) {
-  openKeyed(`project:${name}`, () =>
-    createWindow(
-      "project.html",
-      { name },
-      { width: 1080, height: 760, title: `FIVEHUB — ${name}` },
-    ),
-  );
-}
-
-function openTask(context) {
-  const key = `task:${context.project}/${context.kind}/${context.entity}/${context.task}`;
-  openKeyed(key, () =>
-    createWindow("task.html", context, {
-      width: 900,
-      height: 700,
-      title: `FIVEHUB — ${context.entity} / ${context.task}`,
-    }),
-  );
+  mainWindow = createWindow("projects.html", {}, {
+    width: 1200,
+    height: 820,
+    title: "FIVEHUB",
+  });
+  mainWindow.on("closed", () => (mainWindow = null));
 }
 
 function openReport(reportPath) {
@@ -253,8 +232,6 @@ ipcMain.handle("hub:gitStatus", (_event, project) => runCli(["git-status", proje
 ipcMain.handle("hub:gitSetup", (_event, project) => runCli(["git-setup", project]));
 ipcMain.handle("hub:gitSync", (_event, project) => runCli(["git-sync", project]));
 
-ipcMain.handle("win:project", (_event, name) => openProject(name));
-ipcMain.handle("win:task", (_event, context) => openTask(context));
 ipcMain.handle("win:report", (_event, reportPath) => openReport(reportPath));
 
 ipcMain.handle("os:reveal", (_event, target) => shell.showItemInFolder(target));
@@ -368,9 +345,9 @@ ipcMain.handle("hub:updateRun", async () => {
 // -- lifecycle -----------------------------------------------------------
 
 app.whenReady().then(() => {
-  openProjects();
+  openMain();
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) openProjects();
+    if (BrowserWindow.getAllWindows().length === 0) openMain();
   });
 });
 
