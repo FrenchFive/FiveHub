@@ -289,6 +289,23 @@ def _sop_geometry(node):
     raise ValueError("unsupported node type: %s" % node.path())
 
 
+def _volumes_only(nodes):
+    """True when the selection carries volume prims and no closed polygons
+    — the signal that a USD component is the wrong container."""
+    saw_volume = False
+    for node in nodes:
+        try:
+            geo = _sop_geometry(node)
+        except ValueError:
+            continue
+        for prim in geo.prims():
+            if prim.type() == hou.primType.Polygon and prim.isClosed():
+                return False
+            if prim.type().name() in ("VDB", "Volume"):
+                saw_volume = True
+    return saw_volume
+
+
 def _object_material(node):
     """Object-level material assignment, used when prims carry none."""
     for parm_name in ("shop_materialpath", "materialpath"):
@@ -571,6 +588,12 @@ def publish():
         _error("A publish name is required.")
         return None
 
+    routed = ""
+    if values["format"] == "usd" and _volumes_only(nodes):
+        # A USD component is a polygon asset — volumes ship as VDB caches.
+        values["format"] = "vdb"
+        routed = "Volumes publish as VDB caches — auto-routed from USD."
+
     root = config.ensure_hub()
     thumbnail = os.path.join(
         config.user_exchange_path(root),
@@ -650,6 +673,7 @@ def publish():
             )
             extra = "\n".join(failures)
 
+        extra = "\n".join(part for part in (extra, routed) if part)
         header = (
             "PUBLISHED %s %s" % (values["format"].upper(), result.version_label)
             if result.passed
