@@ -87,9 +87,13 @@ def _label(text, object_name=None):
     return widget
 
 
+NEW_MARKER = "__fivehub_new__"
+
+
 class ContextWidget(QtWidgets.QWidget):
-    """Project / kind / entity / task cascade. When ``editable`` the entity
-    and task combos accept new names (created on confirm by the caller)."""
+    """Project / kind / entity / task cascade — selection only, so a typo
+    can never invent an entity. When ``editable``, explicit "+ NEW …"
+    entries ask for a name (created on confirm by the caller)."""
 
     changed = QtCore.Signal()
 
@@ -109,15 +113,8 @@ class ContextWidget(QtWidgets.QWidget):
         self.entity_combo = QtWidgets.QComboBox()
         self.task_combo = QtWidgets.QComboBox()
         if editable:
-            self.entity_combo.setEditable(True)
-            self.task_combo.setEditable(True)
-            # Houdini's style paints the embedded line edit with its dark
-            # palette regardless of ancestor stylesheets — style the widget
-            # itself, which always wins.
-            for combo in (self.entity_combo, self.task_combo):
-                combo.lineEdit().setStyleSheet(
-                    "background: #ffffff; color: #0b0b0c; border: none;"
-                )
+            self.entity_combo.activated.connect(self._maybe_create_entity)
+            self.task_combo.activated.connect(self._maybe_create_task)
 
         for column, (title, widget) in enumerate(
             (
@@ -162,15 +159,18 @@ class ContextWidget(QtWidgets.QWidget):
         if project:
             for entity in project.entities(kind):
                 self.entity_combo.addItem(entity["name"])
-        if self.editable and current:
-            self.entity_combo.setEditText(current)
+        if self.editable:
+            self.entity_combo.addItem("+ NEW %s…" % kind.upper(), NEW_MARKER)
+        found = self.entity_combo.findText(current)
+        if found >= 0:
+            self.entity_combo.setCurrentIndex(found)
         self.entity_combo.blockSignals(False)
         self._refresh_tasks()
 
     def _refresh_tasks(self):
         project = self._project()
         kind = self.kind_combo.currentData()
-        entity = self.entity_combo.currentText().strip()
+        entity = self._value(self.entity_combo)
         current = self.task_combo.currentText()
         self.task_combo.blockSignals(True)
         self.task_combo.clear()
@@ -182,17 +182,45 @@ class ContextWidget(QtWidgets.QWidget):
             for suggestion in config.DEFAULT_TASKS:
                 if suggestion not in existing:
                     self.task_combo.addItem(suggestion)
-            if current:
-                self.task_combo.setEditText(current)
+            self.task_combo.addItem("+ NEW TASK…", NEW_MARKER)
+        found = self.task_combo.findText(current)
+        if found >= 0:
+            self.task_combo.setCurrentIndex(found)
         self.task_combo.blockSignals(False)
         self.changed.emit()
+
+    def _value(self, combo):
+        if combo.currentData() == NEW_MARKER:
+            return ""
+        return combo.currentText().strip()
+
+    def _create_via(self, combo, prompt):
+        name, ok = QtWidgets.QInputDialog.getText(self, "FIVE HUB", prompt)
+        name = (name or "").strip()
+        if ok and name:
+            insert_at = combo.count() - 1  # just before the "+ NEW …" entry
+            combo.insertItem(insert_at, name)
+            combo.setCurrentIndex(insert_at)
+        else:
+            combo.setCurrentIndex(0 if combo.count() > 1 else -1)
+
+    def _maybe_create_entity(self, index):
+        if self.entity_combo.itemData(index) == NEW_MARKER:
+            self._create_via(
+                self.entity_combo,
+                "Name of the new %s:" % self.kind_combo.currentData(),
+            )
+
+    def _maybe_create_task(self, index):
+        if self.task_combo.itemData(index) == NEW_MARKER:
+            self._create_via(self.task_combo, "Name of the new task:")
 
     def context(self):
         return {
             "project": self.project_combo.currentText().strip(),
             "kind": self.kind_combo.currentData(),
-            "entity": self.entity_combo.currentText().strip(),
-            "task": self.task_combo.currentText().strip().lower(),
+            "entity": self._value(self.entity_combo),
+            "task": self._value(self.task_combo).lower(),
         }
 
     def set_context(self, context):
@@ -211,7 +239,11 @@ class ContextWidget(QtWidgets.QWidget):
             if found >= 0:
                 combo.setCurrentIndex(found)
             elif self.editable and value:
-                combo.setEditText(value)
+                # Incoming context (scene path, FH_* env) that isn't in the
+                # project yet — a real selectable item, never free text.
+                insert_at = max(combo.count() - 1, 0)
+                combo.insertItem(insert_at, value)
+                combo.setCurrentIndex(insert_at)
 
 
 class _BaseDialog(QtWidgets.QDialog):
@@ -280,9 +312,13 @@ class SaveSceneDialog(_BaseDialog):
             )
         except ValueError:
             pass  # entity or task does not exist yet -> first version
+        from fivehub_houdini import scene_extension
+
         self.target_label.setText(
             "WILL SAVE  %s"
-            % config.scene_file_name(context["entity"], context["task"], version)
+            % config.scene_file_name(
+                context["entity"], context["task"], version, scene_extension()
+            )
         )
 
     def values(self):

@@ -32,7 +32,10 @@
         </section>
         <section class="panel">
           <div class="panel-head">
-            <div class="panel-title">PUBLISHES</div>
+            <div class="seg" id="pub-view" role="tablist">
+              <button class="seg-item on" data-view="publishes" role="tab">PUBLISHES</button>
+              <button class="seg-item" data-view="log" role="tab" title="Every attempt, including blocked ones — open their reports to debug">LOG</button>
+            </div>
             <button class="btn small" id="ingest" title="Publish external files into this task">+ INGEST FILES</button>
           </div>
           <div id="publishes"></div>
