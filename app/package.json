@@ -1,7 +1,7 @@
 {
   "name": "fivehub-app",
   "productName": "FiveHub",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "FiveHub \u2014 project hub for the Houdini pipeline",
   "main": "main.js",
   "license": "MIT",
