@@ -84,6 +84,7 @@ function createWindow(page, query, options) {
     backgroundColor: "#f5f5f7",
     autoHideMenuBar: true,
     title: options.title || "FIVEHUB",
+    icon: path.join(REPO_ROOT, "assets", "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
     },
@@ -335,9 +336,47 @@ ipcMain.handle("os:openScene", async (_event, sceneFile, projectRoot) => {
   return { via: "os" };
 });
 
+// -- self-update ---------------------------------------------------------
+
+ipcMain.handle("hub:updateCheck", () => runCli(["update", "--check"]));
+ipcMain.handle("hub:updateRun", async () => {
+  const result = await runCli(["update"]);
+  if (result.update && result.update.updated) {
+    // Relaunch so every window runs the freshly pulled code.
+    app.relaunch({ env: { ...process.env, FIVEHUB_RELAUNCHED: "1" } });
+    app.exit(0);
+  }
+  return result;
+});
+
+// On launch: pull the latest pipeline before showing windows (best-effort,
+// short timeout — offline or non-git installs just proceed). Guarded so a
+// relaunch never updates again in a loop.
+async function autoUpdateOnLaunch() {
+  if (process.env.FIVEHUB_RELAUNCHED || process.env.FIVEHUB_NO_AUTOUPDATE) {
+    return false;
+  }
+  try {
+    const result = await Promise.race([
+      runCli(["update"]),
+      new Promise((resolve) => setTimeout(() => resolve(null), 20000)),
+    ]);
+    if (result && result.update && result.update.updated) {
+      app.relaunch({ env: { ...process.env, FIVEHUB_RELAUNCHED: "1" } });
+      app.exit(0);
+      return true;
+    }
+  } catch {
+    // offline / dirty checkout — the header button still offers updates
+  }
+  return false;
+}
+
 // -- lifecycle -----------------------------------------------------------
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const relaunching = await autoUpdateOnLaunch();
+  if (relaunching) return;
   openProjects();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) openProjects();

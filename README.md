@@ -140,6 +140,21 @@ dependencies** (`npm install`, when Node.js is present).
 
 Then launch Houdini — the FIVE HUB menu is in the main menu bar, and the
 HUB button opens the app (first launch asks your name; that's the login).
+On Windows the installer also adds **FiveHub to the Start Menu** (with the
+goop icon), so Windows search finds it; Linux gets an applications-menu
+entry. Rerun `install.bat` once after the first `npm install` if the
+shortcut step reported a skip.
+
+**Updating is automatic.** FiveHub installs by reference to its git clone,
+so an update is one `git pull` — and the app does it for you: on every
+launch it pulls the latest pipeline (20s budget; offline just proceeds),
+and while running it shows an **UPDATE — vX.Y.Z** button in the header
+whenever a newer version is tagged on `main` (checked every 5 minutes).
+Clicking updates and restarts the app. Houdini has **FIVE HUB ▸ Check for
+Updates**; after an update, restart Houdini (or Reload Pipeline for
+python-only changes). Manual: `python -m fivehub.cli update [--check]`.
+Server deployments update once for everyone — pull the shared clone.
+Set `FIVEHUB_NO_AUTOUPDATE=1` to disable the launch-time pull.
 
 For teams: point every machine's `FIVEHUB_ROOT` at the shared hub, and on
 the server run a cron for `python -m fivehub.cli backup` plus

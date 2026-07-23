@@ -332,6 +332,14 @@ def cmd_git_sync(root, args):
     return {"sync": result}
 
 
+def cmd_update(root, args):
+    from . import updater
+
+    if args.check:
+        return {"update": updater.check()}
+    return {"update": updater.update()}
+
+
 def cmd_backup(root, args):
     """Consistent SQLite backups of every project DB + the registry."""
     import sqlite3
@@ -599,6 +607,12 @@ def build_parser():
     git_sync.add_argument("project")
     git_sync.add_argument("--message", default="")
     git_sync.set_defaults(func=cmd_git_sync)
+
+    update_parser = commands.add_parser(
+        "update", help="self-update the pipeline (git pull; --check only looks)"
+    )
+    update_parser.add_argument("--check", action="store_true")
+    update_parser.set_defaults(func=cmd_update)
 
     commands.add_parser(
         "backup", help="back up every project database and the registry"
