@@ -240,5 +240,51 @@ async function load() {
   }
 }
 
+// Update button: appears whenever the remote carries a newer version
+// (the app also self-updates at launch; this covers long-running apps).
+const updateBtn = document.getElementById("update");
+updateBtn.addEventListener("click", async () => {
+  const ok = await openSheet({
+    title: "Update FiveHub?",
+    submitLabel: "UPDATE + RESTART",
+    build(body) {
+      body.appendChild(
+        el("p", "mono",
+           "Pulls the latest pipeline and restarts the app. Houdini sessions " +
+           "pick it up via RELOAD or on their next launch."),
+      );
+      return () => ({ confirmed: true });
+    },
+  });
+  if (!ok) return;
+  updateBtn.textContent = "UPDATING…";
+  try {
+    const { update } = await window.fivehub.updateRun();
+    if (update && update.error) toast(update.error.toUpperCase());
+    else if (update && !update.updated) toast("ALREADY UP TO DATE");
+    // On success the main process relaunches the app.
+  } catch (error) {
+    toast(cliErrorText(error).toUpperCase());
+  }
+  checkForUpdate();
+});
+
+async function checkForUpdate() {
+  try {
+    const { update } = await window.fivehub.updateCheck();
+    if (update && update.update_available) {
+      updateBtn.textContent = "UPDATE — v" + update.remote;
+      updateBtn.classList.remove("hidden");
+    } else {
+      updateBtn.classList.add("hidden");
+      updateBtn.textContent = "";
+    }
+  } catch {
+    // offline — stay quiet
+  }
+}
+
 ensureLogin().then(load);
+checkForUpdate();
 autoRefresh(load);
+autoRefresh(checkForUpdate, 300000);
