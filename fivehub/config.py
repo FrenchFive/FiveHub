@@ -69,6 +69,11 @@ DEFAULT_TASKS = (
     "lighting",
 )
 
+# Tasks whose deliverable IS the look. Only these block a publish on
+# missing material assignments — a modeling publish legitimately ships
+# before lookdev has happened.
+LOOKDEV_TASKS = ("lookdev", "shading", "surfacing", "texturing", "look")
+
 DEFAULT_FORMAT = "usd"
 FORMATS = ("usd", "bgeo", "vdb", "obj", "hda")
 FORMAT_EXTENSIONS = {
