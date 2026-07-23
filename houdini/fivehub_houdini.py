@@ -1038,12 +1038,18 @@ def pipeline_tools():
 def launch_hub():
     """Start the FiveHub Electron app as a detached process."""
     app_dir = os.path.join(_REPO, "app")
-    binary = os.path.join(app_dir, "node_modules", ".bin",
-                          "electron.cmd" if os.name == "nt" else "electron")
+    if os.name == "nt":
+        # The real exe, never electron.cmd — batch files always drag a
+        # console window along on Windows.
+        binary = os.path.join(app_dir, "node_modules", "electron", "dist",
+                              "electron.exe")
+    else:
+        binary = os.path.join(app_dir, "node_modules", ".bin", "electron")
     if not os.path.isfile(binary):
         _message(
             "The FiveHub app is not installed yet.\n\n"
-            "Run this once in a terminal:\n    cd %s\n    npm install" % app_dir,
+            "Run install.bat (Windows) / ./install.sh once at the FiveHub "
+            "repo root:\n    %s" % _REPO,
             hou.severityType.Warning,
         )
         return
@@ -1052,7 +1058,8 @@ def launch_hub():
     env[config.ENV_ROOT] = config.ensure_hub()
     kwargs = {"cwd": app_dir, "env": env}
     if os.name == "nt":
-        kwargs["creationflags"] = 0x00000008  # DETACHED_PROCESS
+        # DETACHED_PROCESS | CREATE_NO_WINDOW — no console box, ever.
+        kwargs["creationflags"] = 0x00000008 | 0x08000000
     else:
         kwargs["start_new_session"] = True
     subprocess.Popen([binary, app_dir], **kwargs)
