@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src file:; font-src 'self'" />
+  <title>FIVEHUB — TASK</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="bar">
+      <div class="brand">FIVEHUB</div>
+      <div class="spacer"></div>
+      <div class="label" id="context-label"></div>
+      <button class="btn icon dots" id="task-menu" title="More" aria-label="More options">⋯</button>
+    </header>
+    <main class="content">
+      <div class="stack">
+        <div class="row">
+          <h1 class="title" id="task-title"></h1>
+          <span class="spacer"></span>
+          <span class="label" id="presence"></span>
+        </div>
+        <section>
+          <div class="section-head">
+            <div class="label">WORK SCENES</div>
+          </div>
+          <div id="scenes"></div>
+        </section>
+        <section>
+          <div class="section-head">
+            <div class="label">PUBLISHES</div>
+            <button class="btn" id="ingest" title="Publish external files into this task">INGEST FILES</button>
+          </div>
+          <div id="publishes"></div>
+        </section>
+        <section id="deps-section" class="hidden">
+          <div class="section-head">
+            <div class="label">DEPENDENCIES</div>
+          </div>
+          <div id="deps"></div>
+        </section>
+      </div>
+    </main>
+    <footer class="bar">
+      <div class="label" id="hint">SEND STAGES A PUBLISH FOR THE HOUDINI IMPORT TOOL</div>
+    </footer>
+  </div>
+  <script src="common.js"></script>
+  <script src="task.js"></script>
+</body>
+</html>
