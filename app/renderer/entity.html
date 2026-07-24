@@ -13,7 +13,7 @@
       <button class="btn" id="back" title="Back to the project">‹ PROJECT</button>
       <div class="spacer"></div>
       <div class="label" id="context-label"></div>
-      <button class="btn icon dots" id="entity-menu" title="More" aria-label="More options">⋯</button>
+      <button class="btn icon dots" id="entity-menu" title="More" aria-label="More options" data-icon="ellipsis"></button>
     </header>
     <main class="content">
       <div class="stack">
@@ -25,14 +25,14 @@
         </div>
         <section class="panel">
           <div class="panel-head">
-            <div class="panel-title">TASKS</div>
-            <button class="btn small" id="add-task">+ NEW TASK</button>
+            <div class="panel-title" data-icon="list-checks">TASKS</div>
+            <button class="btn small" id="add-task" data-icon="plus">NEW TASK</button>
           </div>
           <div id="tasks" class="entity-list"></div>
         </section>
         <section class="panel">
           <div class="panel-head">
-            <div class="panel-title">PUBLISHES — ALL TASKS</div>
+            <div class="panel-title" data-icon="upload">PUBLISHES — ALL TASKS</div>
           </div>
           <div id="publishes"></div>
         </section>

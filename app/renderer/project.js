@@ -6,6 +6,47 @@ const { name: projectName } = queryParams();
 let defaultTasks = [];
 let projectSettings = {};
 
+// ASSETS | SHOTS | REFERENCES — one at a time, remembered per project so
+// the next visit reopens where the user was.
+const BROWSE_TAB_KEY = "fivehub.browseTab." + projectName;
+const BROWSE_SECTIONS = {
+  assets: { box: "assets", button: "add-asset", unit: "ASSET(S)" },
+  shots: { box: "shots", button: "add-shot", unit: "SHOT(S)" },
+  refs: { box: "refs", button: "add-refs", unit: "REFERENCE(S)" },
+};
+let browseTab = localStorage.getItem(BROWSE_TAB_KEY) || "assets";
+if (!BROWSE_SECTIONS[browseTab]) browseTab = "assets";
+const tabCounts = { assets: 0, shots: 0, refs: 0 };
+
+function updateBrowseCount() {
+  document.getElementById("browse-count").textContent =
+    tabCounts[browseTab] + " " + BROWSE_SECTIONS[browseTab].unit;
+}
+
+function applyBrowseTab() {
+  for (const button of document.querySelectorAll("#browse-tab .seg-item")) {
+    button.classList.toggle("on", button.dataset.tab === browseTab);
+  }
+  for (const [tab, spec] of Object.entries(BROWSE_SECTIONS)) {
+    document.getElementById(spec.box).classList.toggle("hidden", tab !== browseTab);
+    document.getElementById(spec.button).classList.toggle("hidden", tab !== browseTab);
+  }
+  updateBrowseCount();
+}
+
+for (const button of document.querySelectorAll("#browse-tab .seg-item")) {
+  button.addEventListener("click", () => {
+    browseTab = button.dataset.tab;
+    try {
+      localStorage.setItem(BROWSE_TAB_KEY, browseTab);
+    } catch {
+      // storage blocked — the tab just won't persist
+    }
+    applyBrowseTab();
+  });
+}
+applyBrowseTab();
+
 const searchInput = document.getElementById("search");
 let lastTree = null;
 
@@ -137,24 +178,25 @@ const editEntitySheet = (kind, entity) =>
 const taskSheet = (kind, entityName) =>
   taskSheetShared(projectName, kind, entityName, defaultTasks, load);
 
-function entityBlock(kind, entity) {
-  const block = el("div", "entity-block");
-  const head = el("div", "entity-head");
+// Compact on purpose: image + name only. Tasks, metadata and publishes
+// live on the entity page (one click away) so a project with many
+// assets/shots stays readable.
+function entityCard(kind, entity) {
+  const card = el("div", "entity-card");
   if (entity.image) {
     // Latest publish thumbnail, picked by production order (lookdev
     // beats modeling) — the closest look at the current state.
-    const img = el("img", "entity-thumb");
+    const img = el("img", "entity-card-image");
     img.src = window.fivehub.fileUrl(entity.image);
-    img.alt = "";
-    head.appendChild(img);
+    img.alt = entity.name;
+    card.appendChild(img);
+  } else {
+    card.appendChild(el("div", "entity-card-empty", "NO PUBLISH YET"));
   }
-  const title = el("div", "name", entity.name);
-  head.appendChild(title);
-  if (kind === "shot" && entity.frame_start) {
-    head.appendChild(
-      el("span", "meta", `${entity.frame_start}–${entity.frame_end}`),
-    );
-  }
+  const head = el("div", "entity-card-head");
+  const name = el("div", "name", entity.name);
+  name.title = entity.name;
+  head.appendChild(name);
   head.appendChild(
     dotsButton(() => [
       { label: "New task", action: () => taskSheet(kind, entity.name) },
@@ -181,45 +223,17 @@ function entityBlock(kind, entity) {
       },
     ]),
   );
-  block.appendChild(head);
-
-  const chips = el("div", "chips");
-  for (const task of entity.tasks) {
-    const chip = el(
-      "button",
-      "chip",
-      `${task.name} · ${task.scene_count}S/${task.publish_count}P` +
-        (task.active_user ? ` · ● ${task.active_user}` : ""),
-    );
-    if (task.active_user) chip.title = "In use by " + task.active_user;
-    chip.addEventListener("click", (event) => {
-      event.stopPropagation();
-      go("task.html", {
-        project: projectName,
-        kind,
-        entity: entity.name,
-        task: task.name,
-      });
-    });
-    chips.appendChild(chip);
-  }
-  const addChip = el("button", "chip add", "+ TASK");
-  addChip.addEventListener("click", (event) => {
-    event.stopPropagation();
-    taskSheet(kind, entity.name);
-  });
-  chips.appendChild(addChip);
-  block.appendChild(chips);
-  // The block itself opens the asset/shot page — chips go straight to a task.
-  block.addEventListener("click", () =>
+  card.appendChild(head);
+  card.addEventListener("click", () =>
     go("entity.html", { project: projectName, kind, name: entity.name }),
   );
-  return block;
+  return card;
 }
 
 function fillAssets(entities) {
   const container = document.getElementById("assets");
-  document.getElementById("assets-count").textContent = String(entities.length);
+  tabCounts.assets = entities.length;
+  updateBrowseCount();
   clear(container);
   const visible = entities.filter(matches);
   if (!visible.length) {
@@ -228,12 +242,15 @@ function fillAssets(entities) {
     );
     return;
   }
-  for (const entity of visible) container.appendChild(entityBlock("asset", entity));
+  const grid = el("div", "entity-grid");
+  for (const entity of visible) grid.appendChild(entityCard("asset", entity));
+  container.appendChild(grid);
 }
 
 function fillShots(entities) {
   const container = document.getElementById("shots");
-  document.getElementById("shots-count").textContent = String(entities.length);
+  tabCounts.shots = entities.length;
+  updateBrowseCount();
   clear(container);
   const visible = entities.filter(matches);
   if (!visible.length) {
@@ -252,14 +269,18 @@ function fillShots(entities) {
   const keys = [...groups.keys()].sort((a, b) => (a || "zz").localeCompare(b || "zz"));
   for (const key of keys) {
     if (key) container.appendChild(el("div", "label seq-head", key));
+    const grid = el("div", "entity-grid");
     for (const entity of groups.get(key)) {
-      container.appendChild(entityBlock("shot", entity));
+      grid.appendChild(entityCard("shot", entity));
     }
+    container.appendChild(grid);
   }
 }
 
 function renderRefs(refs) {
   const container = document.getElementById("refs");
+  tabCounts.refs = refs.length;
+  updateBrowseCount();
   clear(container);
   if (!refs.length) {
     container.appendChild(el("div", "label", "NO REFERENCES YET — BOARDS, BRIEFS, STILLS"));

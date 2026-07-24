@@ -27,7 +27,7 @@ from contextlib import contextmanager
 
 from .report import utc_now
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS entity (
@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS publish (
     thumbnail   TEXT NOT NULL DEFAULT '',
     comment     TEXT NOT NULL DEFAULT '',
     user        TEXT NOT NULL DEFAULT '',
+    source_file TEXT NOT NULL DEFAULT '',
     status      TEXT NOT NULL DEFAULT 'complete',
     deleted_at  TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL,
@@ -168,6 +169,11 @@ _V2_NEW_COLUMNS = {
     ),
 }
 
+# v3: publishes remember the scene file that produced them.
+_V3_NEW_COLUMNS = {
+    "publish": (("source_file", "TEXT NOT NULL DEFAULT ''"),),
+}
+
 LOCK_RETRIES = 6
 LOCK_BASE_DELAY = 0.25
 
@@ -211,30 +217,36 @@ class ProjectDB:
         if version >= SCHEMA_VERSION:
             conn.executescript(SCHEMA)  # new tables may still be missing
             return
+        # ALTERs are applied only for tables/columns that already exist —
+        # a fresh file gets everything from SCHEMA below instead.
         if version < 2:
-            # v0 is a fresh file; v1 is the pre-metadata schema. ALTERs are
-            # applied only for columns that do not exist yet.
-            existing_tables = {
-                row["name"]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                ).fetchall()
-            }
-            for table, columns in _V2_NEW_COLUMNS.items():
-                if table not in existing_tables:
-                    continue
-                present = {
-                    row["name"]
-                    for row in conn.execute("PRAGMA table_info(%s)" % table).fetchall()
-                }
-                for column, declaration in columns:
-                    if column not in present:
-                        conn.execute(
-                            "ALTER TABLE %s ADD COLUMN %s %s"
-                            % (table, column, declaration)
-                        )
+            self._add_missing_columns(conn, _V2_NEW_COLUMNS)
+        if version < 3:
+            self._add_missing_columns(conn, _V3_NEW_COLUMNS)
         conn.executescript(SCHEMA)
         conn.execute("PRAGMA user_version = %d" % SCHEMA_VERSION)
+
+    @staticmethod
+    def _add_missing_columns(conn, spec):
+        existing_tables = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        for table, columns in spec.items():
+            if table not in existing_tables:
+                continue
+            present = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(%s)" % table).fetchall()
+            }
+            for column, declaration in columns:
+                if column not in present:
+                    conn.execute(
+                        "ALTER TABLE %s ADD COLUMN %s %s"
+                        % (table, column, declaration)
+                    )
 
     # -- entities --------------------------------------------------------
 
@@ -319,7 +331,12 @@ class ProjectDB:
                    (SELECT p.thumbnail FROM publish p WHERE p.task_id = t.id
                      AND p.version IS NOT NULL AND p.status = 'complete'
                      AND p.deleted_at = '' AND p.thumbnail != ''
-                     ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1) AS image
+                     ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1) AS image,
+                   (SELECT p.created_at FROM publish p WHERE p.task_id = t.id
+                     AND p.version IS NOT NULL AND p.status = 'complete'
+                     AND p.deleted_at = ''
+                     ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1)
+                     AS last_publish_at
             FROM task t WHERE t.entity_id = ? AND t.deleted_at = '' ORDER BY t.name
         """
         with self._connect() as conn:
@@ -437,17 +454,18 @@ class ProjectDB:
         raise RuntimeError("could not claim a publish version (database contention)")
 
     def complete_publish(self, task_id, format_name, version, report,
-                         path="", report_path="", thumbnail="", comment="", user=""):
+                         path="", report_path="", thumbnail="", comment="",
+                         user="", source_file=""):
         with self._connect() as conn:
             conn.execute(
                 "UPDATE publish SET status = 'complete', passed = ?, errors = ?,"
                 " warnings = ?, path = ?, report_path = ?, thumbnail = ?,"
-                " comment = ?, user = ?, created_at = ?"
+                " comment = ?, user = ?, source_file = ?, created_at = ?"
                 " WHERE task_id = ? AND format = ? AND version = ?",
                 (
                     1 if report.passed else 0, report.error_count,
                     report.warning_count, path, report_path, thumbnail,
-                    comment or "", user or "", utc_now(),
+                    comment or "", user or "", source_file or "", utc_now(),
                     task_id, format_name, int(version),
                 ),
             )

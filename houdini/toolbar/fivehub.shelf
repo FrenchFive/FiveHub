@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shelfDocument>
+  <!-- FiveHub shelf — quick access to the same actions as the FIVE HUB
+       main menu. Picked up via HOUDINI_PATH (fivehub.json package). -->
+
+  <toolshelf name="fivehub" label="FIVE HUB">
+    <memberTool name="fivehub_save"/>
+    <memberTool name="fivehub_publish"/>
+    <memberTool name="fivehub_import"/>
+    <memberTool name="fivehub_app"/>
+  </toolshelf>
+
+  <tool name="fivehub_save" label="SAVE +" icon="BUTTONS_save">
+    <helpText><![CDATA[Increment-save the current pipeline scene (or pick a context if the scene is not in the pipeline yet).]]></helpText>
+    <script scriptType="python"><![CDATA[import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.increment_save()]]></script>
+  </tool>
+
+  <tool name="fivehub_publish" label="PUBLISH" icon="SOP_output">
+    <helpText><![CDATA[Publish through a PUBLISH node: select one to rerun it, or select a SOP to create the node and publish. Every publish is owned by a node — visible and reproducible.]]></helpText>
+    <script scriptType="python"><![CDATA[import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.publish()]]></script>
+  </tool>
+
+  <tool name="fivehub_import" label="IMPORT" icon="SOP_file">
+    <helpText><![CDATA[Import the publish staged by the hub app (or browse publishes).]]></helpText>
+    <script scriptType="python"><![CDATA[import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.import_staged()]]></script>
+  </tool>
+
+  <tool name="fivehub_app" label="HUB" icon="SOP_output">
+    <helpText><![CDATA[Open the standalone FiveHub app (Electron).]]></helpText>
+    <script scriptType="python"><![CDATA[import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.launch_hub()]]></script>
+  </tool>
+
+  <!-- TAB-menu nodes: press TAB in a network, type "FiveHub" or open the
+       FIVE HUB submenu. These place and wire like native nodes. -->
+
+  <tool name="fivehub_publish_node" label="FiveHub Publish" icon="SOP_output">
+    <toolMenuContext name="network">
+      <contextNetType>SOP</contextNetType>
+    </toolMenuContext>
+    <toolSubmenu>FIVE HUB</toolSubmenu>
+    <helpText><![CDATA[PUBLISH node: owns name/format/variant, its input chain is what ships — the PUBLISH button on the node republishes any time.]]></helpText>
+    <script scriptType="python"><![CDATA[import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.create_publish_node(kwargs)]]></script>
+  </tool>
+
+  <tool name="fivehub_loader_node" label="FiveHub Loader" icon="SOP_file">
+    <toolMenuContext name="network">
+      <contextNetType>SOP</contextNetType>
+      <contextNetType>OBJ</contextNetType>
+      <contextNetType>LOP</contextNetType>
+    </toolMenuContext>
+    <toolSubmenu>FIVE HUB</toolSubmenu>
+    <helpText><![CDATA[Browse the project's publishes and create a LOADER node — it remembers its source and has an UPDATE TO LATEST button.]]></helpText>
+    <script scriptType="python"><![CDATA[import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+import fivehub_houdini
+fivehub_houdini.load_asset()]]></script>
+  </tool>
+
+  <tool name="fivehub_cache_node" label="FiveHub File Cache" icon="SOP_filecache">
+    <toolMenuContext name="network">
+      <contextNetType>SOP</contextNetType>
+    </toolMenuContext>
+    <toolSubmenu>FIVE HUB</toolSubmenu>
+    <helpText><![CDATA[filecache SOP pre-pointed at the task's caches directory with the pipeline nomenclature.]]></helpText>
+    <script scriptType="python"><![CDATA[import os, sys
+root = hou.text.expandString("$FIVEHUB")
+for p in (root, os.path.join(root, "houdini")):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+from fivehub.tools import cachepath
+cachepath.create_file_cache()]]></script>
+  </tool>
+</shelfDocument>

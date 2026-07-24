@@ -7,7 +7,7 @@ let entityData = null;
 
 document.title = `FIVEHUB — ${entityName}`;
 const backBtn = document.getElementById("back");
-backBtn.textContent = "‹ " + (projectName || "PROJECT").toUpperCase();
+setButtonLabel(backBtn, "chevron-left", (projectName || "PROJECT").toUpperCase());
 backBtn.addEventListener("click", () => go("project.html", { name: projectName }));
 document.getElementById("context-label").textContent = `${projectName} · ${kind}`;
 
@@ -21,18 +21,29 @@ function taskRow(task) {
   if (task.image) {
     const img = el("img", "entity-thumb");
     img.src = window.fivehub.fileUrl(task.image);
-    img.alt = "";
+    img.alt = task.name;
+    img.title = "Inspect image";
+    img.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openLightbox(img.src, task.name);
+    });
     head.appendChild(img);
   }
   head.appendChild(el("div", "name", task.name));
-  head.appendChild(
-    el(
-      "span",
-      "meta",
-      `${task.scene_count} SCENES · ${task.publish_count} PUBLISHES` +
-        (task.active_user ? ` · ● ${task.active_user}` : ""),
-    ),
-  );
+  const status = el("span", "task-status");
+  if (task.publish_count) {
+    // Published badge + when the task last shipped anything, any name.
+    const badge = el("span", "pub-badge");
+    badge.appendChild(icon("check"));
+    status.appendChild(badge);
+    status.appendChild(
+      el("span", "meta", "PUBLISHED " + shortDate(task.last_publish_at || "")),
+    );
+  }
+  if (task.active_user) {
+    status.appendChild(el("span", "meta", "● " + task.active_user));
+  }
+  head.appendChild(status);
   block.appendChild(head);
   block.addEventListener("click", () => go("task.html", taskContext(task.name)));
   return block;
@@ -80,7 +91,14 @@ async function load() {
     }
     entityData = entity;
 
-    document.getElementById("entity-title").textContent = entity.name;
+    // Folder-style path — the project segment navigates back.
+    pathTitle(document.getElementById("entity-title"), [
+      {
+        label: projectName,
+        go: () => go("project.html", { name: projectName }),
+      },
+      { label: entity.name },
+    ]);
     const heroImage = document.getElementById("entity-image");
     if (entity.image) {
       heroImage.src = window.fivehub.fileUrl(entity.image);
@@ -132,6 +150,10 @@ async function load() {
 
 document.getElementById("add-task").addEventListener("click", () =>
   taskSheetShared(projectName, kind, entityName, defaultTasks, load),
+);
+
+document.getElementById("entity-image").addEventListener("click", (event) =>
+  openLightbox(event.currentTarget.src, entityName),
 );
 
 document.getElementById("entity-menu").addEventListener("click", (event) => {

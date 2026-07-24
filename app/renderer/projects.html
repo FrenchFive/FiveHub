@@ -14,10 +14,13 @@
       <div class="spacer"></div>
       <div class="user-pill hidden" id="user"></div>
       <button class="btn solid hidden" id="update" title="A newer FiveHub is available"></button>
-      <button class="btn solid" id="new-project">NEW PROJECT</button>
+      <button class="btn solid" id="new-project" data-icon="plus">NEW PROJECT</button>
     </header>
     <main class="content">
-      <div id="projects"></div>
+      <div class="stack">
+        <div id="recent"></div>
+        <div id="projects"></div>
+      </div>
     </main>
     <footer class="bar">
       <div class="mono" id="hub-path"></div>

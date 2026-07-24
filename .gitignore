@@ -18,8 +18,8 @@ app/dist/
 app/package-lock.json
 houdini/splash/*.png
 
-# legacy locations
+# legacy locations (root only — houdini/toolbar/ is the live shelf)
 /test
 /asset
 /db
-toolbar
+/toolbar
