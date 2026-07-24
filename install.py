@@ -50,9 +50,88 @@ def run(command, timeout=900, cwd=None):
 HOUDINI_BINARIES = ("houdinifx", "houdini", "houdinicore", "hindie")
 
 
+def _find_houdini_registry():
+    """Windows registry — SideFX records every install location here, so
+    this finds Houdini wherever it was installed (any drive, any folder)."""
+    try:
+        import winreg
+    except ImportError:
+        return ""
+    found = []
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            key = winreg.OpenKey(root, r"SOFTWARE\Side Effects Software")
+        except OSError:
+            continue
+        with key:
+            index = 0
+            while True:
+                try:
+                    name = winreg.EnumKey(key, index)
+                except OSError:
+                    break
+                index += 1
+                if not name.startswith("Houdini"):
+                    continue
+                path = ""
+                try:
+                    with winreg.OpenKey(key, name) as version_key:
+                        for value_name in ("InstallPath", ""):
+                            try:
+                                path = str(
+                                    winreg.QueryValueEx(version_key, value_name)[0]
+                                )
+                                break
+                            except OSError:
+                                continue
+                except OSError:
+                    continue
+                if path:
+                    found.append((name, path))
+
+    def version_of(item):
+        return [int(number) for number in re.findall(r"\d+", item[0])]
+
+    for _, path in sorted(found, key=version_of, reverse=True):
+        for name in HOUDINI_BINARIES:
+            candidate = os.path.join(path, "bin", name + ".exe")
+            if os.path.isfile(candidate):
+                return candidate
+    return ""
+
+
+def _ask_houdini():
+    """Interactive last resort: the user pastes the executable or its
+    install folder. Non-interactive runs (CI) skip via EOF."""
+    extension = ".exe" if os.name == "nt" else ""
+    try:
+        answer = input(
+            "\nWhere is Houdini installed? Paste the path to the executable\n"
+            "(e.g. C:\\...\\Houdini 20.5.487\\bin\\houdinifx.exe) or to the\n"
+            "install folder. Press Enter to skip: "
+        ).strip().strip('"')
+    except (EOFError, OSError):
+        return ""
+    if not answer:
+        return ""
+    path = os.path.expanduser(answer)
+    if os.path.isfile(path):
+        return path
+    for sub in ("bin", ""):
+        for name in HOUDINI_BINARIES:
+            candidate = os.path.join(path, sub, name + extension)
+            if os.path.isfile(candidate):
+                return candidate
+    print("  no houdini executable found at %r" % answer)
+    return ""
+
+
 def find_houdini(base=None):
     """Newest Houdini binary from $HFS or the standard install locations."""
     if os.name == "nt":
+        from_registry = _find_houdini_registry()
+        if from_registry:
+            return from_registry
         default_base = os.path.join(
             os.environ.get("ProgramFiles", r"C:\Program Files"),
             "Side Effects Software",
@@ -96,6 +175,8 @@ def detect_houdini():
     """Record the Houdini binary in ~/.fivehub/machine.json for the app's
     open/launch buttons — set once at install, self-repaired by the app."""
     binary = find_houdini()
+    if not binary:
+        binary = _ask_houdini()  # ask the human before giving up
     if not binary:
         step("Houdini binary", False,
              "not found — the app will ask you to locate houdini once")

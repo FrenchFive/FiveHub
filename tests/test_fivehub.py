@@ -1452,10 +1452,13 @@ class UninstallerTests(unittest.TestCase):
                 [sys.executable, "install.py", "--no-pip", "--no-fonts",
                  "--no-splash", "--no-app", "--no-shortcut"],
                 cwd=REPO, capture_output=True, text=True, env=env,
-                timeout=120, check=True,
+                timeout=120, check=True, stdin=subprocess.DEVNULL,
             )
             package = os.path.join(prefs, "packages", "fivehub.json")
             self.assertTrue(os.path.isfile(package))
+            houdini_env = os.path.join(prefs, "houdini.env")
+            with open(houdini_env, encoding="utf-8") as handle:
+                self.assertIn("FIVEHUB BEGIN", handle.read())
 
             completed = subprocess.run(
                 [sys.executable, "uninstall.py", "--no-app", "--no-fonts",
@@ -1464,6 +1467,8 @@ class UninstallerTests(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertFalse(os.path.exists(package))
+            with open(houdini_env, encoding="utf-8") as handle:
+                self.assertNotIn("FIVEHUB BEGIN", handle.read())
             self.assertFalse(os.path.exists(desktop))
             self.assertFalse(os.path.exists(login))
             self.assertFalse(os.path.exists(hub))
@@ -1572,11 +1577,15 @@ class InstallerTests(unittest.TestCase):
                 [sys.executable, "install.py", "--no-pip", "--no-fonts",
                  "--no-splash", "--no-app"],
                 cwd=REPO, capture_output=True, text=True, env=env, timeout=120,
+                stdin=subprocess.DEVNULL,
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
             for version in ("houdini20.5", "houdini21.0"):
                 package = os.path.join(home, version, "packages", "fivehub.json")
                 self.assertTrue(os.path.isfile(package), package)
+                with open(os.path.join(home, version, "houdini.env"),
+                          encoding="utf-8") as handle:
+                    self.assertIn("HOUDINI_SPLASH_FILE", handle.read())
             self.assertIn("FIVE HUB menu", completed.stdout)
 
     def test_houdini_installer_auto_flag(self):
