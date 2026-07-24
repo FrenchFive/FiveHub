@@ -231,6 +231,74 @@ select {
   box-shadow: var(--shadow-soft);
 }
 
+/* Lucide icon spans (see common.js LUCIDE) — size by context. */
+.ic {
+  display: inline-flex;
+  flex: none;
+}
+
+.ic svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.btn {
+  gap: 7px;
+}
+
+.btn.small .ic svg {
+  width: 12px;
+  height: 12px;
+}
+
+.panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.panel-title .ic svg {
+  width: 13px;
+  height: 13px;
+}
+
+.seg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.seg-item .ic svg {
+  width: 12px;
+  height: 12px;
+}
+
+.pub-badge .ic svg {
+  width: 11px;
+  height: 11px;
+}
+
+.chevron {
+  display: inline-flex;
+}
+
+.chevron .ic svg {
+  width: 15px;
+  height: 15px;
+}
+
+.user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.user-pill .ic svg {
+  width: 12px;
+  height: 12px;
+}
+
 .btn:active {
   transform: scale(0.96);
   transition-duration: 0.08s;
@@ -763,6 +831,166 @@ tbody tr:hover {
   color: var(--surface);
 }
 
+/* Folder-style clickable path in page titles. */
+.title .crumb {
+  cursor: pointer;
+  transition: opacity var(--fast) var(--spring);
+}
+
+.title .crumb:hover {
+  opacity: 0.55;
+}
+
+.title .crumb-sep {
+  color: var(--ink-2);
+  font-weight: 300;
+  margin: 0 12px;
+}
+
+/* Recently opened scenes — shortcuts on the home page. */
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  background: var(--wash);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--fast) var(--spring),
+    transform var(--fast) var(--pop);
+}
+
+.recent-row:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+
+.recent-row .name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.recent-row .meta {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+/* Publishes grouped by name — the chevron reveals the version history. */
+.pub-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pub-group {
+  border: var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--wash);
+  overflow: hidden;
+}
+
+.pub-group-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.pub-group-head:hover {
+  background: var(--fill);
+}
+
+.chevron {
+  display: inline-block;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-2);
+  transition: transform var(--fast) var(--pop);
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+  color: var(--ink);
+}
+
+.pub-name {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.pub-thumb {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: var(--hairline);
+  background: var(--surface);
+  cursor: zoom-in;
+  flex: none;
+}
+
+.pub-thumb.empty {
+  border-style: dashed;
+  cursor: default;
+}
+
+.pub-versions {
+  border-top: var(--hairline);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+
+.pub-version {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px 8px 42px;
+}
+
+.pub-version + .pub-version {
+  border-top: var(--hairline);
+}
+
+.pub-ver {
+  font-weight: 700;
+}
+
+.pub-meta {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+.table-thumb {
+  cursor: zoom-in;
+}
+
+/* Image inspector */
+.overlay.lightbox {
+  background: rgba(11, 11, 12, 0.86);
+}
+
+.lightbox-image {
+  max-width: 88vw;
+  max-height: 88vh;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lift);
+  background: var(--surface);
+}
+
+.sheet-field .mono {
+  word-break: break-all;
+}
+
 /* Cards nested inside a panel drop the white-on-white look. */
 .panel .entity-block,
 .panel .ref-cell,
@@ -970,7 +1198,28 @@ tbody tr:hover {
   filter: grayscale(1);
 }
 
-/* Latest-publish thumbnail on asset/shot blocks and task rows. */
+/* Published badge + last-publish date on task rows. */
+.task-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pub-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex: none;
+}
+
+/* Latest-publish thumbnail on task rows (entity page). */
 .entity-thumb {
   width: 44px;
   height: 44px;
@@ -978,6 +1227,70 @@ tbody tr:hover {
   border-radius: var(--radius-sm);
   border: var(--hairline);
   background: var(--surface);
+}
+
+/* Project view: compact asset/shot cards — image + name only, the rest
+   is one click away on the entity page. */
+.entity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.entity-card {
+  background: var(--wash);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  transition: transform var(--fast) var(--pop),
+    border-color var(--fast) var(--spring);
+}
+
+.entity-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+}
+
+.entity-card-image,
+.entity-card-empty {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  border: var(--hairline);
+  background: var(--surface);
+}
+
+.entity-card-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.entity-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.entity-card .name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-pass,

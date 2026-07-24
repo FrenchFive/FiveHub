@@ -188,7 +188,9 @@ class Project:
             return stored  # pre-migration rows
         return os.path.normpath(os.path.join(self.root, stored))
 
-    def _abs_row(self, row, keys=("file", "path", "report_path", "thumbnail")):
+    def _abs_row(self, row,
+                 keys=("file", "path", "report_path", "thumbnail",
+                       "source_file")):
         for key in keys:
             if key in row and row[key]:
                 row[key] = self.absolute(row[key])
@@ -375,12 +377,14 @@ class Project:
         )
 
     def complete_publish(self, kind, entity, task, format_name, version, report,
-                         path="", report_path="", thumbnail="", comment="", user=""):
+                         path="", report_path="", thumbnail="", comment="",
+                         user="", source_file=""):
         task_record = self._task_record(kind, entity, task)
         self.db.complete_publish(
             task_record["id"], format_name, version, report,
             path=self.rel(path), report_path=self.rel(report_path),
             thumbnail=self.rel(thumbnail), comment=comment, user=user,
+            source_file=self.rel(source_file),
         )
         row = self.db.get_publish(task_record["id"], format_name, version)
         if row:

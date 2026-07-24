@@ -50,7 +50,7 @@ fivehub_houdini.load_scene()
       <separatorItem/>
 
       <scriptItem id="fivehub_publish">
-        <label>Publish Selection...</label>
+        <label>Publish...</label>
         <scriptCode><![CDATA[
 import os, sys
 root = hou.text.expandString("$FIVEHUB")

@@ -569,13 +569,20 @@ def _capture_thumbnail(nodes, path):
 # -- publish -------------------------------------------------------------
 
 
+def _is_publish_node(node):
+    return node is not None and node.parm("fh_publish") is not None
+
+
 def publish():
+    """Every publish goes THROUGH a FIVEHUB PUBLISH node — there is no
+    publish-from-selection. Selecting a PUBLISH node reruns it; selecting
+    a plain SOP creates the node (the dialog seeds its parms once) and
+    publishes through it, so the scene always shows what shipped."""
     from fivehub_windows import PublishDialog, exec_dialog
 
-    nodes = hou.selectedNodes()
-    if not nodes:
-        _message("Select the geo objects (or SOPs) to publish.")
-        return None
+    selected = hou.selectedNodes()
+    if selected and _is_publish_node(selected[0]):
+        return publish_from_node(selected[0])
 
     # Publishing is only available from a scene saved in the pipeline —
     # the context is derived from the scene, never chosen at publish time.
@@ -595,6 +602,17 @@ def publish():
         _error(str(error))
         return None
 
+    if not (
+        selected
+        and selected[0].type().category() == hou.sopNodeTypeCategory()
+    ):
+        _message(
+            "Select the SOP to publish (or an existing PUBLISH node).\n"
+            "Several pieces? Merge them first — the PUBLISH node ships "
+            "its input chain."
+        )
+        return None
+
     dialog = PublishDialog(context=context)
     dialog.set_frame_range(*_entity_frame_range(project, context))
     if not exec_dialog(dialog):
@@ -603,7 +621,33 @@ def publish():
     if not values["name"]:
         _error("A publish name is required.")
         return None
-    return _run_publish(nodes, context, project, values)
+
+    node = create_publish_node()
+    if node is None:
+        return None
+    _apply_publish_values(node, values)
+    return publish_from_node(node)
+
+
+def _apply_publish_values(node, values):
+    """Seed a PUBLISH node's parms from the dialog — the node carries the
+    how, so the publish is reproducible by anyone later."""
+    node.parm("fh_name").set(values["name"])
+    try:
+        node.parm("fh_format").set(PUBLISH_FORMATS.index(values["format"]))
+    except ValueError:
+        pass
+    node.parm("fh_variant").set(values.get("variant") or "default")
+    node.parm("fh_comment").set(values.get("comment") or "")
+    node.parm("fh_animated").set(1 if values.get("animated") else 0)
+    if values.get("animated"):
+        if values.get("frame_start") is not None:
+            node.parm("fh_fstart").set(int(values["frame_start"]))
+        if values.get("frame_end") is not None:
+            node.parm("fh_fend").set(int(values["frame_end"]))
+    node.setName(
+        "PUBLISH_" + naming.make_identifier(values["name"]), unique_name=True
+    )
 
 
 def _run_publish(nodes, context, project, values):
@@ -714,23 +758,51 @@ def _run_publish(nodes, context, project, values):
 PUBLISH_FORMATS = ("usd", "bgeo", "vdb", "obj")
 
 
-def create_publish_node():
-    """Drop a FIVEHUB PUBLISH null after the selected SOP. The node OWNS
-    the publish — name, format, variant live on it — so anyone opening
-    the scene sees exactly what ships and republishes with one button."""
-    selected = hou.selectedNodes()
-    if not (selected and selected[0].type().category() == hou.sopNodeTypeCategory()):
-        _message("Select the SOP whose result should be published, then rerun.")
-        return None
-    source = selected[0]
+def create_publish_node(kwargs=None):
+    """A FIVEHUB PUBLISH null. The node OWNS the publish — name, format,
+    variant live on it — so anyone opening the scene sees exactly what
+    ships and republishes with one button.
+
+    From the TAB menu (``kwargs`` given) it places and wires like any
+    native node; from the FIVE HUB menu it attaches to the selected SOP."""
+    node = None
+    if kwargs:
+        try:
+            import soptoolutils
+
+            node = soptoolutils.genericTool(kwargs, "null")
+        except Exception:
+            node = None
+    if node is None:
+        selected = hou.selectedNodes()
+        if not (
+            selected
+            and selected[0].type().category() == hou.sopNodeTypeCategory()
+        ):
+            _message(
+                "Select the SOP whose result should be published, then rerun."
+            )
+            return None
+        source = selected[0]
+        node = source.parent().createNode("null")
+        node.setFirstInput(source)
+        node.moveToGoodPosition()
+
     context = _current_context()
+    upstream = node.input(0)
     default_name = naming.make_identifier(
-        (context or {}).get("entity") or source.name()
+        (context or {}).get("entity")
+        or (upstream.name() if upstream is not None else "")
+        or "asset"
     )
+    node.setName("PUBLISH_" + default_name, unique_name=True)
+    _setup_publish_node(node, default_name)
+    node.setDisplayFlag(True)
+    node.setRenderFlag(True)
+    return node
 
-    node = source.parent().createNode("null", "PUBLISH_" + default_name)
-    node.setFirstInput(source)
 
+def _setup_publish_node(node, default_name):
     group = node.parmTemplateGroup()
     folder = hou.FolderParmTemplate("fh_folder", "FIVE HUB PUBLISH")
     folder.addParmTemplate(hou.StringParmTemplate(
@@ -754,16 +826,7 @@ def create_publish_node():
     ))
     group.append(folder)
     node.setParmTemplateGroup(group)
-
     node.setColor(hou.Color((0.05, 0.05, 0.06)))
-    node.setDisplayFlag(True)
-    node.setRenderFlag(True)
-    node.moveToGoodPosition()
-    _message(
-        "PUBLISH node created.\nSet name/format once — from now on the "
-        "PUBLISH button on the node republishes exactly its input."
-    )
-    return node
 
 
 def publish_from_node(node):
