@@ -714,23 +714,51 @@ def _run_publish(nodes, context, project, values):
 PUBLISH_FORMATS = ("usd", "bgeo", "vdb", "obj")
 
 
-def create_publish_node():
-    """Drop a FIVEHUB PUBLISH null after the selected SOP. The node OWNS
-    the publish — name, format, variant live on it — so anyone opening
-    the scene sees exactly what ships and republishes with one button."""
-    selected = hou.selectedNodes()
-    if not (selected and selected[0].type().category() == hou.sopNodeTypeCategory()):
-        _message("Select the SOP whose result should be published, then rerun.")
-        return None
-    source = selected[0]
+def create_publish_node(kwargs=None):
+    """A FIVEHUB PUBLISH null. The node OWNS the publish — name, format,
+    variant live on it — so anyone opening the scene sees exactly what
+    ships and republishes with one button.
+
+    From the TAB menu (``kwargs`` given) it places and wires like any
+    native node; from the FIVE HUB menu it attaches to the selected SOP."""
+    node = None
+    if kwargs:
+        try:
+            import soptoolutils
+
+            node = soptoolutils.genericTool(kwargs, "null")
+        except Exception:
+            node = None
+    if node is None:
+        selected = hou.selectedNodes()
+        if not (
+            selected
+            and selected[0].type().category() == hou.sopNodeTypeCategory()
+        ):
+            _message(
+                "Select the SOP whose result should be published, then rerun."
+            )
+            return None
+        source = selected[0]
+        node = source.parent().createNode("null")
+        node.setFirstInput(source)
+        node.moveToGoodPosition()
+
     context = _current_context()
+    upstream = node.input(0)
     default_name = naming.make_identifier(
-        (context or {}).get("entity") or source.name()
+        (context or {}).get("entity")
+        or (upstream.name() if upstream is not None else "")
+        or "asset"
     )
+    node.setName("PUBLISH_" + default_name, unique_name=True)
+    _setup_publish_node(node, default_name)
+    node.setDisplayFlag(True)
+    node.setRenderFlag(True)
+    return node
 
-    node = source.parent().createNode("null", "PUBLISH_" + default_name)
-    node.setFirstInput(source)
 
+def _setup_publish_node(node, default_name):
     group = node.parmTemplateGroup()
     folder = hou.FolderParmTemplate("fh_folder", "FIVE HUB PUBLISH")
     folder.addParmTemplate(hou.StringParmTemplate(
@@ -754,16 +782,7 @@ def create_publish_node():
     ))
     group.append(folder)
     node.setParmTemplateGroup(group)
-
     node.setColor(hou.Color((0.05, 0.05, 0.06)))
-    node.setDisplayFlag(True)
-    node.setRenderFlag(True)
-    node.moveToGoodPosition()
-    _message(
-        "PUBLISH node created.\nSet name/format once — from now on the "
-        "PUBLISH button on the node republishes exactly its input."
-    )
-    return node
 
 
 def publish_from_node(node):
