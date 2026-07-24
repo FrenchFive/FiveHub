@@ -30,14 +30,18 @@ function taskRow(task) {
     head.appendChild(img);
   }
   head.appendChild(el("div", "name", task.name));
-  head.appendChild(
-    el(
-      "span",
-      "meta",
-      `${task.scene_count} SCENES · ${task.publish_count} PUBLISHES` +
-        (task.active_user ? ` · ● ${task.active_user}` : ""),
-    ),
-  );
+  const status = el("span", "task-status");
+  if (task.publish_count) {
+    // Published badge + when the task last shipped anything, any name.
+    status.appendChild(el("span", "pub-badge", "✓"));
+    status.appendChild(
+      el("span", "meta", "PUBLISHED " + shortDate(task.last_publish_at || "")),
+    );
+  }
+  if (task.active_user) {
+    status.appendChild(el("span", "meta", "● " + task.active_user));
+  }
+  head.appendChild(status);
   block.appendChild(head);
   block.addEventListener("click", () => go("task.html", taskContext(task.name)));
   return block;

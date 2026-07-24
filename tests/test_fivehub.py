@@ -467,6 +467,7 @@ class PublishTests(unittest.TestCase):
         modeling = next(t for t in entity["tasks"] if t["name"] == "modeling")
         self.assertTrue(modeling["image"])
         self.assertTrue(os.path.isfile(modeling["image"]))
+        self.assertTrue(modeling["last_publish_at"])
         self.assertEqual(entity["image"], modeling["image"])
 
         self.project.create_task("asset", "TestCrate", "lookdev")
