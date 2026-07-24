@@ -15,11 +15,12 @@ function taskContext(taskName) {
   return { project: projectName, kind, entity: entityName, task: taskName };
 }
 
-function taskRow(task) {
-  const block = el("div", "entity-block");
-  const head = el("div", "entity-head");
+// Compact card — identical geometry with or without an image (the
+// placeholder keeps the layout consistent).
+function taskCard(task) {
+  const card = el("div", "entity-card");
   if (task.image) {
-    const img = el("img", "entity-thumb");
+    const img = el("img", "entity-card-image");
     img.src = window.fivehub.fileUrl(task.image);
     img.alt = task.name;
     img.title = "Inspect image";
@@ -27,26 +28,29 @@ function taskRow(task) {
       event.stopPropagation();
       openLightbox(img.src, task.name);
     });
-    head.appendChild(img);
+    card.appendChild(img);
+  } else {
+    card.appendChild(el("div", "entity-card-empty", "NO PUBLISH YET"));
   }
-  head.appendChild(el("div", "name", task.name));
-  const status = el("span", "task-status");
+  const head = el("div", "entity-card-head");
+  const name = el("div", "name", task.name);
+  name.title = task.name;
+  head.appendChild(name);
   if (task.publish_count) {
-    // Published badge + when the task last shipped anything, any name.
     const badge = el("span", "pub-badge");
     badge.appendChild(icon("check"));
-    status.appendChild(badge);
-    status.appendChild(
-      el("span", "meta", "PUBLISHED " + shortDate(task.last_publish_at || "")),
-    );
+    badge.title = "PUBLISHED " + shortDate(task.last_publish_at || "");
+    head.appendChild(badge);
   }
-  if (task.active_user) {
-    status.appendChild(el("span", "meta", "● " + task.active_user));
+  card.appendChild(head);
+  const bits = [];
+  if (task.publish_count) {
+    bits.push("PUBLISHED " + shortDate(task.last_publish_at || ""));
   }
-  head.appendChild(status);
-  block.appendChild(head);
-  block.addEventListener("click", () => go("task.html", taskContext(task.name)));
-  return block;
+  if (task.active_user) bits.push("● " + task.active_user);
+  if (bits.length) card.appendChild(el("div", "meta", bits.join(" · ")));
+  card.addEventListener("click", () => go("task.html", taskContext(task.name)));
+  return card;
 }
 
 function publishRow(publish) {
@@ -117,8 +121,11 @@ async function load() {
     clear(tasksBox);
     if (!entity.tasks.length) {
       tasksBox.appendChild(el("div", "label", "NO TASKS YET"));
+    } else {
+      const grid = el("div", "entity-grid");
+      for (const task of entity.tasks) grid.appendChild(taskCard(task));
+      tasksBox.appendChild(grid);
     }
-    for (const task of entity.tasks) tasksBox.appendChild(taskRow(task));
 
     // Publishes across every task of this entity, newest first.
     const infos = await Promise.all(

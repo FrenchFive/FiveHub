@@ -1293,6 +1293,12 @@ tbody tr:hover {
   white-space: nowrap;
 }
 
+.entity-card .meta {
+  font-size: 10.5px;
+  color: var(--ink-2);
+  letter-spacing: 0.03em;
+}
+
 .status-pass,
 .status-fail {
   display: inline-block;
