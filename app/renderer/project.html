@@ -10,7 +10,7 @@
 <body>
   <div class="page">
     <header class="bar">
-      <button class="btn" id="back" title="Back to all projects">‹ PROJECTS</button>
+      <button class="btn" id="back" title="Back to all projects" data-icon="chevron-left">PROJECTS</button>
       <input type="text" id="search" placeholder="Search assets & shots" style="flex:1; max-width: 320px" />
       <div class="spacer"></div>
       <div class="label" id="counts"></div>
@@ -21,8 +21,8 @@
         <div class="columns">
           <section class="panel">
             <div class="panel-head">
-              <div class="panel-title">ASSETS</div>
-              <button class="btn small" id="add-asset">+ NEW ASSET</button>
+              <div class="panel-title" data-icon="box">ASSETS</div>
+              <button class="btn small" id="add-asset" data-icon="plus">NEW ASSET</button>
               <span class="spacer"></span>
               <span class="label" id="assets-count"></span>
             </div>
@@ -30,8 +30,8 @@
           </section>
           <section class="panel">
             <div class="panel-head">
-              <div class="panel-title">SHOTS</div>
-              <button class="btn small" id="add-shot">+ NEW SHOT</button>
+              <div class="panel-title" data-icon="clapperboard">SHOTS</div>
+              <button class="btn small" id="add-shot" data-icon="plus">NEW SHOT</button>
               <span class="spacer"></span>
               <span class="label" id="shots-count"></span>
             </div>
@@ -40,20 +40,20 @@
         </div>
         <section class="panel">
           <div class="panel-head">
-            <div class="panel-title">REFERENCES</div>
-            <button class="btn small" id="add-refs">+ ADD IMAGES & FILES</button>
+            <div class="panel-title" data-icon="image">REFERENCES</div>
+            <button class="btn small" id="add-refs" data-icon="plus">ADD IMAGES & FILES</button>
           </div>
           <div id="refs"></div>
         </section>
         <section class="panel">
           <div class="panel-head">
-            <div class="panel-title">RENDER JOBS</div>
+            <div class="panel-title" data-icon="cpu">RENDER JOBS</div>
           </div>
           <div id="jobs"></div>
         </section>
         <section class="panel">
           <div class="panel-head">
-            <div class="panel-title">ACTIVITY</div>
+            <div class="panel-title" data-icon="activity">ACTIVITY</div>
           </div>
           <div id="activity"></div>
         </section>

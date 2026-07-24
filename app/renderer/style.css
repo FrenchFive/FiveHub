@@ -231,6 +231,74 @@ select {
   box-shadow: var(--shadow-soft);
 }
 
+/* Lucide icon spans (see common.js LUCIDE) — size by context. */
+.ic {
+  display: inline-flex;
+  flex: none;
+}
+
+.ic svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.btn {
+  gap: 7px;
+}
+
+.btn.small .ic svg {
+  width: 12px;
+  height: 12px;
+}
+
+.panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.panel-title .ic svg {
+  width: 13px;
+  height: 13px;
+}
+
+.seg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.seg-item .ic svg {
+  width: 12px;
+  height: 12px;
+}
+
+.pub-badge .ic svg {
+  width: 11px;
+  height: 11px;
+}
+
+.chevron {
+  display: inline-flex;
+}
+
+.chevron .ic svg {
+  width: 15px;
+  height: 15px;
+}
+
+.user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.user-pill .ic svg {
+  width: 12px;
+  height: 12px;
+}
+
 .btn:active {
   transform: scale(0.96);
   transition-duration: 0.08s;

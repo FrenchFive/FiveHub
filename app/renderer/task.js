@@ -3,7 +3,7 @@
 const context = queryParams(); // {project, kind, entity, task}
 
 const backBtn = document.getElementById("back");
-backBtn.textContent = "‹ " + (context.entity || "BACK").toUpperCase();
+setButtonLabel(backBtn, "chevron-left", (context.entity || "BACK").toUpperCase());
 backBtn.addEventListener("click", () =>
   go("entity.html", { project: context.project, kind: context.kind, name: context.entity }),
 );
@@ -272,7 +272,8 @@ function publishesTable(publishes, emptyText) {
 
     const actions = el("td", "row-actions");
     if (publish.report_path) {
-      const reportBtn = el("button", "btn small", "REPORT");
+      const reportBtn = el("button", "btn small");
+    setButtonLabel(reportBtn, "file-text", "REPORT");
       reportBtn.addEventListener("click", () =>
         window.fivehub.openReport(publish.report_path),
       );
@@ -440,7 +441,8 @@ function versionRow(publish) {
   row.appendChild(el("span", "pub-meta", shortDate(publish.created_at)));
   row.appendChild(el("span", "spacer"));
   if (publish.report_path) {
-    const reportBtn = el("button", "btn small", "REPORT");
+    const reportBtn = el("button", "btn small");
+    setButtonLabel(reportBtn, "file-text", "REPORT");
     reportBtn.addEventListener("click", () =>
       window.fivehub.openReport(publish.report_path),
     );
@@ -457,7 +459,9 @@ function groupBlock(name, format, versions, showFormat) {
   const expanded = expandedPublishes.has(key);
   const box = el("div", "pub-group");
   const head = el("div", "pub-group-head");
-  head.appendChild(el("span", "chevron" + (expanded ? " open" : ""), "›"));
+  const chevron = el("span", "chevron" + (expanded ? " open" : ""));
+  chevron.appendChild(icon("chevron-right"));
+  head.appendChild(chevron);
   head.appendChild(thumbFor(versions[0], "pub-thumb"));
   head.appendChild(el("span", "pub-name", name));
   if (showFormat) head.appendChild(el("span", "label", format.toUpperCase()));
