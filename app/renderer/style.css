@@ -763,6 +763,115 @@ tbody tr:hover {
   color: var(--surface);
 }
 
+/* Publishes grouped by name — the chevron reveals the version history. */
+.pub-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pub-group {
+  border: var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--wash);
+  overflow: hidden;
+}
+
+.pub-group-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.pub-group-head:hover {
+  background: var(--fill);
+}
+
+.chevron {
+  display: inline-block;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-2);
+  transition: transform var(--fast) var(--pop);
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+  color: var(--ink);
+}
+
+.pub-name {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.pub-thumb {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: var(--hairline);
+  background: var(--surface);
+  cursor: zoom-in;
+  flex: none;
+}
+
+.pub-thumb.empty {
+  border-style: dashed;
+  cursor: default;
+}
+
+.pub-versions {
+  border-top: var(--hairline);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+
+.pub-version {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px 8px 42px;
+}
+
+.pub-version + .pub-version {
+  border-top: var(--hairline);
+}
+
+.pub-ver {
+  font-weight: 700;
+}
+
+.pub-meta {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+.table-thumb {
+  cursor: zoom-in;
+}
+
+/* Image inspector */
+.overlay.lightbox {
+  background: rgba(11, 11, 12, 0.86);
+}
+
+.lightbox-image {
+  max-width: 88vw;
+  max-height: 88vh;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lift);
+  background: var(--surface);
+}
+
+.sheet-field .mono {
+  word-break: break-all;
+}
+
 /* Cards nested inside a panel drop the white-on-white look. */
 .panel .entity-block,
 .panel .ref-cell,

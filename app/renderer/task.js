@@ -159,6 +159,80 @@ function scenesTable(scenes) {
   return table;
 }
 
+// Everything that would clutter a publish line lives here instead.
+function detailsSheet(publish) {
+  openSheet({
+    title:
+      (publish.name || "publish") +
+      (publish.version ? " " + padVersion(publish.version) : ""),
+    submitLabel: "CLOSE",
+    hideCancel: true,
+    build(body) {
+      const add = (labelText, value) => {
+        if (!value) return;
+        const field = sheetField(body, labelText);
+        field.appendChild(el("span", "mono", String(value)));
+      };
+      add("FORMAT", (publish.format || "").toUpperCase());
+      add("VARIANT", publish.variant);
+      add(
+        "STATUS",
+        (publish.passed ? "PASS" : "FAIL") +
+          ` — ${publish.errors || 0} error(s), ${publish.warnings || 0} warning(s)`,
+      );
+      add("BY", publish.user);
+      add("PUBLISHED", shortDate(publish.created_at));
+      add("COMMENT", publish.comment);
+      add("SOURCE SCENE", publish.source_file);
+      add("FILES", publish.path);
+      add("REPORT", publish.report_path);
+      return () => ({ closed: true });
+    },
+  });
+}
+
+function publishMenu(publish) {
+  return [
+    { label: "More details", action: () => detailsSheet(publish) },
+    {
+      label: "Send to Houdini",
+      action: async () => {
+        try {
+          await window.fivehub.send(context, publish.format, publish.version);
+          toast(`${padVersion(publish.version)} STAGED — USE IMPORT IN HOUDINI`);
+        } catch (error) {
+          toast("SEND FAILED");
+        }
+      },
+    },
+    {
+      label: "Copy path",
+      action: async () => {
+        await window.fivehub.copy(publish.path);
+        toast("PUBLISH PATH COPIED");
+      },
+    },
+    { label: "Reveal files", action: () => window.fivehub.reveal(publish.path) },
+    { label: "Edit comment", action: () => editPublishComment(publish) },
+    "-",
+    { label: "Delete version", danger: true, action: () => deletePublish(publish) },
+  ];
+}
+
+// Thumbnail that opens the image inspector on click.
+function thumbFor(publish, className) {
+  if (!publish.thumbnail) return el("span", className + " empty");
+  const img = el("img", className);
+  img.src = window.fivehub.fileUrl(publish.thumbnail);
+  img.alt = publish.name || "";
+  img.title = "Inspect image";
+  img.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openLightbox(img.src, publish.name);
+  });
+  return img;
+}
+
 function publishesTable(publishes, emptyText) {
   if (!publishes.length) {
     return el("div", "label", emptyText || "NOTHING PUBLISHED YET");
@@ -167,7 +241,7 @@ function publishesTable(publishes, emptyText) {
   const head = el("thead");
   const headRow = el("tr");
   for (const column of [
-    "", "FORMAT", "VERSION", "VARIANT", "STATUS", "BY", "PUBLISHED", "COMMENT", "",
+    "", "NAME", "FORMAT", "VERSION", "STATUS", "BY", "PUBLISHED", "",
   ]) {
     headRow.appendChild(el("th", null, column));
   }
@@ -178,16 +252,11 @@ function publishesTable(publishes, emptyText) {
   for (const publish of publishes) {
     const row = el("tr");
     const thumbCell = el("td", "thumb-cell");
-    if (publish.thumbnail) {
-      const img = el("img", "table-thumb");
-      img.src = window.fivehub.fileUrl(publish.thumbnail);
-      img.alt = "";
-      thumbCell.appendChild(img);
-    }
+    if (publish.thumbnail) thumbCell.appendChild(thumbFor(publish, "table-thumb"));
     row.appendChild(thumbCell);
+    row.appendChild(el("td", null, publish.name || "—"));
     row.appendChild(el("td", null, (publish.format || "").toUpperCase()));
     row.appendChild(el("td", null, publish.version ? padVersion(publish.version) : "—"));
-    row.appendChild(el("td", null, publish.variant || "—"));
 
     const statusCell = el("td");
     statusCell.appendChild(
@@ -200,7 +269,6 @@ function publishesTable(publishes, emptyText) {
     row.appendChild(statusCell);
     row.appendChild(el("td", null, publish.user || "—"));
     row.appendChild(el("td", null, shortDate(publish.created_at)));
-    row.appendChild(el("td", null, publish.comment || "—"));
 
     const actions = el("td", "row-actions");
     if (publish.report_path) {
@@ -211,40 +279,11 @@ function publishesTable(publishes, emptyText) {
       actions.appendChild(reportBtn);
     }
     if (publish.version) {
+      actions.appendChild(dotsButton(() => publishMenu(publish)));
+    } else {
       actions.appendChild(
         dotsButton(() => [
-          {
-            label: "Send to Houdini",
-            action: async () => {
-              try {
-                await window.fivehub.send(context, publish.format, publish.version);
-                toast(`${padVersion(publish.version)} STAGED — USE IMPORT IN HOUDINI`);
-              } catch (error) {
-                toast("SEND FAILED");
-              }
-            },
-          },
-          {
-            label: "Copy path",
-            action: async () => {
-              await window.fivehub.copy(publish.path);
-              toast("PUBLISH PATH COPIED");
-            },
-          },
-          {
-            label: "Reveal files",
-            action: () => window.fivehub.reveal(publish.path),
-          },
-          {
-            label: "Edit comment",
-            action: () => editPublishComment(publish),
-          },
-          "-",
-          {
-            label: "Delete version",
-            danger: true,
-            action: () => deletePublish(publish),
-          },
+          { label: "More details", action: () => detailsSheet(publish) },
         ]),
       );
     }
@@ -384,6 +423,66 @@ function depsList(uses, usedBy) {
 let projectRoot = "";
 let lastInfo = null;
 let pubView = "publishes"; // "publishes" = passed versions, "log" = every attempt
+const expandedPublishes = new Set(); // survives autoRefresh re-renders
+
+function versionRow(publish) {
+  const row = el("div", "pub-version");
+  row.appendChild(thumbFor(publish, "pub-thumb"));
+  row.appendChild(el("span", "pub-ver mono", padVersion(publish.version)));
+  row.appendChild(
+    el(
+      "span",
+      publish.passed ? "status-pass" : "status-fail",
+      publish.passed ? "PASS" : "FAIL",
+    ),
+  );
+  row.appendChild(el("span", "pub-meta", publish.user || "—"));
+  row.appendChild(el("span", "pub-meta", shortDate(publish.created_at)));
+  row.appendChild(el("span", "spacer"));
+  if (publish.report_path) {
+    const reportBtn = el("button", "btn small", "REPORT");
+    reportBtn.addEventListener("click", () =>
+      window.fivehub.openReport(publish.report_path),
+    );
+    row.appendChild(reportBtn);
+  }
+  row.appendChild(dotsButton(() => publishMenu(publish)));
+  return row;
+}
+
+// One collapsed element per publish NAME (an fx task ships many layers —
+// the name is what tells them apart). The chevron reveals the versions.
+function groupBlock(name, format, versions, showFormat) {
+  const key = name + "::" + format;
+  const expanded = expandedPublishes.has(key);
+  const box = el("div", "pub-group");
+  const head = el("div", "pub-group-head");
+  head.appendChild(el("span", "chevron" + (expanded ? " open" : ""), "›"));
+  head.appendChild(thumbFor(versions[0], "pub-thumb"));
+  head.appendChild(el("span", "pub-name", name));
+  if (showFormat) head.appendChild(el("span", "label", format.toUpperCase()));
+  head.appendChild(el("span", "spacer"));
+  head.appendChild(
+    el(
+      "span",
+      "label",
+      padVersion(versions[0].version) + " · " +
+        versions.length + (versions.length === 1 ? " VERSION" : " VERSIONS"),
+    ),
+  );
+  head.addEventListener("click", () => {
+    if (expandedPublishes.has(key)) expandedPublishes.delete(key);
+    else expandedPublishes.add(key);
+    renderPublishes();
+  });
+  box.appendChild(head);
+  if (expanded) {
+    const list = el("div", "pub-versions");
+    for (const publish of versions) list.appendChild(versionRow(publish));
+    box.appendChild(list);
+  }
+  return box;
+}
 
 function renderPublishes() {
   const box = document.getElementById("publishes");
@@ -391,14 +490,34 @@ function renderPublishes() {
   const all = (lastInfo && lastInfo.publishes) || [];
   if (pubView === "log") {
     box.appendChild(publishesTable(all, "NO PUBLISH ATTEMPTS YET"));
-  } else {
-    box.appendChild(
-      publishesTable(
-        all.filter((publish) => publish.passed && publish.version),
-        "NOTHING PUBLISHED YET",
-      ),
-    );
+    return;
   }
+  const live = all.filter((publish) => publish.passed && publish.version);
+  if (!live.length) {
+    box.appendChild(el("div", "label", "NOTHING PUBLISHED YET"));
+    return;
+  }
+  const groups = new Map();
+  for (const publish of live) {
+    const key = (publish.name || "unnamed") + "::" + (publish.format || "");
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(publish);
+  }
+  // A name shared by several formats gets a small format tag to stay unique.
+  const nameCounts = new Map();
+  for (const key of groups.keys()) {
+    const name = key.split("::")[0];
+    nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+  }
+  const wrap = el("div", "pub-groups");
+  for (const [key, versions] of [...groups.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0]),
+  )) {
+    versions.sort((a, b) => b.version - a.version);
+    const [name, format] = key.split("::");
+    wrap.appendChild(groupBlock(name, format, versions, nameCounts.get(name) > 1));
+  }
+  box.appendChild(wrap);
 }
 
 for (const button of document.querySelectorAll("#pub-view .seg-item")) {
