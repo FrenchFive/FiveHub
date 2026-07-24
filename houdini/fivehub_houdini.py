@@ -178,19 +178,21 @@ def save_scene_as():
         return None
     if not exec_dialog(dialog):
         return None
-    context, notes = dialog.values()
+    context, notes, scene_name = dialog.values()
     if not (context["project"] and context["entity"] and context["task"]):
         _error("Project, asset/shot and task are all required.")
         return None
-    return _save_into(context, notes)
+    return _save_into(context, notes, name=scene_name or "main")
 
 
 def increment_save():
     context = _current_context()
     if context is None:
         return save_scene_as()
+    scene_name = context.get("scene_name") or "main"
+    label = "%s / %s / %s" % (context["entity"], context["task"], scene_name)
     pressed, values = hou.ui.readMultiInput(
-        "Increment %s / %s / %s" % (context["project"], context["entity"], context["task"]),
+        "Increment  %s" % label,
         ("Notes",),
         buttons=("Save", "Cancel"),
         default_choice=0,
@@ -199,7 +201,7 @@ def increment_save():
     )
     if pressed != 0:
         return None
-    return _save_into(context, values[0].strip())
+    return _save_into(context, values[0].strip(), name=scene_name)
 
 
 def scene_extension():
@@ -217,14 +219,17 @@ def scene_extension():
         return config.SCENE_EXTENSION
 
 
-def _save_into(context, notes):
+def _save_into(context, notes, name="main"):
     """Claim the version in the database first (multi-user safe), then save
-    the hip at the claimed path, then complete — never overwrite a peer."""
+    the hip at the claimed path, then complete — never overwrite a peer.
+    ``name`` is the scene stream (several fx setups on one shot each keep
+    their own versions)."""
+    name = naming.make_identifier(name or "main", fallback="main")
     try:
         project = _ensure_context(context)
         path, version = project.claim_scene(
             context["kind"], context["entity"], context["task"], get_user(),
-            extension=scene_extension(),
+            extension=scene_extension(), name=name,
         )
     except (ValueError, RuntimeError) as error:
         _error(str(error))
@@ -233,19 +238,20 @@ def _save_into(context, notes):
         hou.hipFile.save(path)
         project.complete_scene(
             context["kind"], context["entity"], context["task"],
-            version, notes, get_user(),
+            version, notes, get_user(), name=name,
         )
     except (ValueError, hou.OperationFailed) as error:
         project.release_scene(
-            context["kind"], context["entity"], context["task"], version
+            context["kind"], context["entity"], context["task"], version,
+            name=name,
         )
         _error(str(error))
         return None
     _after_context_change(project, context, scene_version=version)
     _message(
-        "SAVED %s\n%s / %s %s / %s"
+        "SAVED %s  ·  %s\n%s / %s %s / %s"
         % (
-            config.version_label(version),
+            config.version_label(version), name,
             context["project"], context["kind"], context["entity"], context["task"],
         )
     )
@@ -802,31 +808,77 @@ def create_publish_node(kwargs=None):
     return node
 
 
+def publish_name_menu(_node):
+    """Existing publish names on the current task, for the name dropdown —
+    pick instead of retyping, so a layer name is never mistyped."""
+    context = _current_context()
+    if context is None:
+        return []
+    try:
+        project = get_project(context["project"])
+        rows = project.publishes(context["kind"], context["entity"], context["task"])
+    except ValueError:
+        return []
+    menu = []
+    for name in sorted({row["name"] for row in rows if row.get("name")}):
+        menu.extend([name, name])
+    return menu
+
+
 def _setup_publish_node(node, default_name):
     group = node.parmTemplateGroup()
-    folder = hou.FolderParmTemplate("fh_folder", "FIVE HUB PUBLISH")
-    folder.addParmTemplate(hou.StringParmTemplate(
-        "fh_name", "Publish Name", 1, default_value=(default_name,)))
-    folder.addParmTemplate(hou.MenuParmTemplate(
+    name = hou.StringParmTemplate(
+        "fh_name", "Publish Name", 1, default_value=(default_name,),
+        item_generator_script=(
+            "import fivehub_houdini\n"
+            "return fivehub_houdini.publish_name_menu(kwargs['node'])"
+        ),
+        item_generator_script_language=hou.scriptLanguage.Python,
+        menu_type=hou.menuType.StringReplace,
+    )
+    fmt = hou.MenuParmTemplate(
         "fh_format", "Format", PUBLISH_FORMATS,
-        menu_labels=tuple(f.upper() for f in PUBLISH_FORMATS)))
-    folder.addParmTemplate(hou.StringParmTemplate(
-        "fh_variant", "Variant", 1, default_value=("default",)))
-    folder.addParmTemplate(hou.StringParmTemplate("fh_comment", "Comment", 1))
-    folder.addParmTemplate(hou.ToggleParmTemplate(
-        "fh_animated", "Animated (bake frame range)"))
-    folder.addParmTemplate(hou.IntParmTemplate(
-        "fh_fstart", "Frame Start", 1, default_expression=("$FSTART",)))
-    folder.addParmTemplate(hou.IntParmTemplate(
-        "fh_fend", "Frame End", 1, default_expression=("$FEND",)))
-    folder.addParmTemplate(hou.ButtonParmTemplate(
+        menu_labels=tuple(f.upper() for f in PUBLISH_FORMATS),
+    )
+    variant = hou.StringParmTemplate(
+        "fh_variant", "Variant", 1, default_value=("default",))
+    comment = hou.StringParmTemplate("fh_comment", "Comment", 1)
+    animated = hou.ToggleParmTemplate(
+        "fh_animated", "Animated (bake frame range)")
+    fstart = hou.IntParmTemplate(
+        "fh_fstart", "Frame Range", 1, default_expression=("$FSTART",),
+        join_with_next=True,
+    )
+    fstart.setConditional(hou.parmCondType.HideWhen, "{ fh_animated == 0 }")
+    fend = hou.IntParmTemplate(
+        "fh_fend", "Frame End", 1, default_expression=("$FEND",),
+        is_label_hidden=True,
+    )
+    fend.setConditional(hou.parmCondType.HideWhen, "{ fh_animated == 0 }")
+    separator = hou.SeparatorParmTemplate("fh_sep")
+    publish_button = hou.ButtonParmTemplate(
         "fh_publish", "PUBLISH",
         script_callback="__import__('fivehub_houdini').publish_from_node(kwargs['node'])",
         script_callback_language=hou.scriptLanguage.Python,
-    ))
-    group.append(folder)
+        join_with_next=True,
+    )
+    read_button = hou.ButtonParmTemplate(
+        "fh_read", "CREATE A READ",
+        script_callback=(
+            "__import__('fivehub_houdini')"
+            ".create_read_from_publish_node(kwargs['node'])"
+        ),
+        script_callback_language=hou.scriptLanguage.Python,
+    )
+    for template in (name, fmt, variant, comment, animated, fstart, fend,
+                     separator, publish_button, read_button):
+        group.append(template)
     node.setParmTemplateGroup(group)
     node.setColor(hou.Color((0.05, 0.05, 0.06)))
+    try:
+        node.setUserData("nodeshape", "circle")
+    except hou.OperationFailed:
+        pass
 
 
 def publish_from_node(node):
@@ -935,7 +987,7 @@ def _collect_hda_files(nodes):
 # -- import --------------------------------------------------------------
 
 
-def load_asset():
+def load_asset(kwargs=None):
     from fivehub_windows import LoadAssetDialog, exec_dialog
 
     context = _current_context()
@@ -950,7 +1002,7 @@ def load_asset():
     _track_dependency(context, source, row["format"], row["name"], row["version"])
     return _import_publish(
         row["format"], row["path"], row["name"],
-        source=source, version=row["version"],
+        source=source, version=row["version"], kwargs=kwargs,
     )
 
 
@@ -1042,7 +1094,45 @@ def _fill_file_container(container, files):
     container.layoutChildren()
 
 
-def _import_publish(format_name, path, name, source=None, version=None):
+def _pane_network(kwargs):
+    """The network under the TAB menu that invoked a tool, if any."""
+    if not kwargs:
+        return None
+    pane = kwargs.get("pane")
+    if pane is None:
+        return None
+    try:
+        return pane.pwd()
+    except AttributeError:
+        return None
+
+
+def _sop_loader(network, format_name, path, node_name):
+    """A read node inside a SOP network — published geometry ready to
+    wire FX (or anything else) straight on top."""
+    if format_name == "usd":
+        node = network.createNode("usdimport", node_name)
+        node.parm("filepath1").set(_usd_entry_layer(path))
+    else:
+        groups = _group_sequences(_publish_file_list(path))
+        if not groups:
+            _error("No files found in publish:\n%s" % path)
+            return None
+        node = network.createNode("file", node_name)
+        node.parm("file").set(groups[0][1])
+        if len(groups) > 1:
+            _message(
+                "Publish has %d file groups — loaded the first. Load from "
+                "/obj for all of them." % len(groups)
+            )
+    node.setDisplayFlag(True)
+    node.setRenderFlag(True)
+    node.moveToGoodPosition()
+    return node
+
+
+def _import_publish(format_name, path, name, source=None, version=None,
+                    kwargs=None):
     node_name = naming.make_identifier(name)
 
     if format_name == "hda":
@@ -1060,16 +1150,36 @@ def _import_publish(format_name, path, name, source=None, version=None):
     if source:
         node_name = "LOAD_" + node_name
 
-    if format_name == "usd":
-        node = _import_usd(_usd_entry_layer(path), node_name)
-    else:
-        files = _publish_file_list(path)
-        if not files:
-            _error("No files found in publish:\n%s" % path)
-            return None
-        node = hou.node("/obj").createNode("geo", node_name)
-        _fill_file_container(node, files)
-        node.moveToGoodPosition()
+    # Where the TAB menu was pressed decides the flavor: SOP network ->
+    # geometry read right there; LOP network -> reference; anywhere else
+    # -> an OBJ container with the geometry imported inside.
+    node = None
+    network = _pane_network(kwargs)
+    if network is not None:
+        category = network.childTypeCategory()
+        if category == hou.sopNodeTypeCategory():
+            node = _sop_loader(network, format_name, path, node_name)
+        elif category == hou.lopNodeTypeCategory() and format_name == "usd":
+            for type_name in ("reference::2.0", "reference"):
+                try:
+                    node = network.createNode(type_name, node_name)
+                except hou.OperationFailed:
+                    continue
+                node.parm("filepath1").set(_usd_entry_layer(path))
+                node.moveToGoodPosition()
+                break
+
+    if node is None:
+        if format_name == "usd":
+            node = _import_usd(_usd_entry_layer(path), node_name)
+        else:
+            files = _publish_file_list(path)
+            if not files:
+                _error("No files found in publish:\n%s" % path)
+                return None
+            node = hou.node("/obj").createNode("geo", node_name)
+            _fill_file_container(node, files)
+            node.moveToGoodPosition()
 
     if node is not None and source:
         # The import is a LOADER: it remembers where it came from and
@@ -1078,30 +1188,100 @@ def _import_publish(format_name, path, name, source=None, version=None):
     return node
 
 
+def _loader_rows(node):
+    """(project, live publish rows for this loader's task+format+name)."""
+    try:
+        project = get_project(node.evalParm("fh_project"))
+        rows = project.publishes(
+            node.evalParm("fh_kind"), node.evalParm("fh_entity"),
+            node.evalParm("fh_task"),
+        )
+    except ValueError:
+        return None, []
+    fmt = node.evalParm("fh_format")
+    live = [
+        row for row in rows
+        if row["format"] == fmt and row["version"] and row.get("passed")
+    ]
+    return project, live
+
+
+def loader_name_menu(node):
+    """Existing publish names for this loader's task — the dropdown arrow
+    so a name is picked, never mistyped."""
+    _project, rows = _loader_rows(node)
+    menu = []
+    for name in sorted({row["name"] for row in rows if row.get("name")}):
+        menu.extend([name, name])
+    return menu
+
+
+def loader_version_menu(node):
+    """'latest' plus every published version of the selected name."""
+    _project, rows = _loader_rows(node)
+    name = node.evalParm("fh_name")
+    versions = sorted(
+        {row["version"] for row in rows if row["name"] == name}, reverse=True
+    )
+    menu = ["latest", "latest (follows newest)"]
+    for version in versions:
+        label = config.version_label(version)
+        menu.extend([label, label])
+    return menu
+
+
 def _apply_loader_parms(node, source, format_name, name, version):
     group = node.parmTemplateGroup()
     folder = hou.FolderParmTemplate("fh_loader", "FIVE HUB LOADER")
-    for key, value in (
-        ("project", source.get("project", "")),
-        ("kind", source.get("kind", "asset")),
-        ("entity", source.get("entity", "")),
-        ("task", source.get("task", "")),
-        ("name", name),
-        ("format", format_name),
-    ):
-        folder.addParmTemplate(hou.StringParmTemplate(
-            "fh_" + key, key.capitalize(), 1, default_value=(str(value),)
-        ))
-    folder.addParmTemplate(hou.StringParmTemplate(
-        "fh_version", "Loaded Version", 1,
-        default_value=(config.version_label(version) if version else "latest",),
-    ))
+    # Update-to-latest sits at the TOP — the most common action.
     folder.addParmTemplate(hou.ButtonParmTemplate(
         "fh_update", "UPDATE TO LATEST",
         script_callback="__import__('fivehub_houdini').update_loader(kwargs['node'])",
         script_callback_language=hou.scriptLanguage.Python,
     ))
-    group.append(folder)
+    folder.addParmTemplate(hou.SeparatorParmTemplate("fh_lsep"))
+    # Context — plain data, but Asset/Shot and Task stay editable so the
+    # loader can be retargeted.
+    for key, value in (
+        ("project", source.get("project", "")),
+        ("kind", source.get("kind", "asset")),
+        ("entity", source.get("entity", "")),
+        ("task", source.get("task", "")),
+        ("format", format_name),
+    ):
+        folder.addParmTemplate(hou.StringParmTemplate(
+            "fh_" + key, key.capitalize(), 1, default_value=(str(value),)
+        ))
+    # Name: type or pick from the dropdown of existing publishes.
+    folder.addParmTemplate(hou.StringParmTemplate(
+        "fh_name", "Publish Name", 1, default_value=(name,),
+        item_generator_script=(
+            "import fivehub_houdini\n"
+            "return fivehub_houdini.loader_name_menu(kwargs['node'])"
+        ),
+        item_generator_script_language=hou.scriptLanguage.Python,
+        menu_type=hou.menuType.StringReplace,
+        script_callback="__import__('fivehub_houdini').reload_loader(kwargs['node'])",
+        script_callback_language=hou.scriptLanguage.Python,
+    ))
+    # Version: 'latest' or any concrete version — changing it reloads.
+    folder.addParmTemplate(hou.StringParmTemplate(
+        "fh_version", "Version", 1,
+        default_value=(config.version_label(version) if version else "latest",),
+        item_generator_script=(
+            "import fivehub_houdini\n"
+            "return fivehub_houdini.loader_version_menu(kwargs['node'])"
+        ),
+        item_generator_script_language=hou.scriptLanguage.Python,
+        menu_type=hou.menuType.StringReplace,
+        script_callback="__import__('fivehub_houdini').reload_loader(kwargs['node'])",
+        script_callback_language=hou.scriptLanguage.Python,
+    ))
+    existing = group.find("fh_loader")
+    if existing is not None:
+        group.replace("fh_loader", folder)
+    else:
+        group.append(folder)
     node.setParmTemplateGroup(group)
     try:
         node.setColor(hou.Color((0.05, 0.05, 0.06)))
@@ -1109,47 +1289,136 @@ def _apply_loader_parms(node, source, format_name, name, version):
         pass
 
 
-def update_loader(node):
-    """The button on a FIVEHUB LOADER: repoint it at the newest live
-    publish of the asset it loaded, wherever it has moved to since."""
-    source = {
-        key: node.evalParm("fh_" + key)
-        for key in ("project", "kind", "entity", "task", "name", "format")
-    }
-    format_name = source.pop("format")
-    name = source.pop("name")
+def _latest_publish_row(project, kind, entity, task, format_name, name):
     try:
-        project = get_project(source["project"])
-        rows = project.publishes(source["kind"], source["entity"], source["task"])
-    except ValueError as error:
-        _error(str(error))
+        rows = project.publishes(kind, entity, task)
+    except ValueError:
         return None
     live = [
         row for row in rows
         if row["format"] == format_name and row["name"] == name
         and row["version"] and row.get("passed")
     ]
-    if not live:
+    return max(live, key=lambda entry: entry["version"]) if live else None
+
+
+def create_read_from_publish_node(node):
+    """CREATE A READ on a PUBLISH node: a loader for this publish's
+    latest version, dropped next to it in the same network — the round
+    trip stays visible."""
+    context = _current_context()
+    if context is None:
+        _error(
+            "Save the scene in the pipeline first "
+            "(FIVE HUB > Save Scene As...)."
+        )
+        return None
+    name = node.evalParm("fh_name").strip()
+    if not name:
+        _error("Set the publish name first.")
+        return None
+    format_name = PUBLISH_FORMATS[node.evalParm("fh_format")]
+    try:
+        project = get_project(context["project"])
+    except ValueError as error:
+        _error(str(error))
+        return None
+    row = _latest_publish_row(
+        project, context["kind"], context["entity"], context["task"],
+        format_name, name,
+    )
+    if row is None:
+        _error(
+            "Nothing published yet as %r (%s) — press PUBLISH first."
+            % (name, format_name)
+        )
+        return None
+    read = _sop_loader(
+        node.parent(), format_name, row["path"],
+        "READ_" + naming.make_identifier(name),
+    )
+    if read is None:
+        return None
+    source = {
+        "project": context["project"], "kind": context["kind"],
+        "entity": context["entity"], "task": context["task"],
+    }
+    _apply_loader_parms(read, source, format_name, name, row["version"])
+    _track_dependency(context, source, format_name, name, row["version"])
+    return read
+
+
+def _loader_source(node):
+    return {
+        "project": node.evalParm("fh_project"),
+        "kind": node.evalParm("fh_kind"),
+        "entity": node.evalParm("fh_entity"),
+        "task": node.evalParm("fh_task"),
+    }
+
+
+def reload_loader(node):
+    """Repoint a LOADER at the publish its parms currently name. 'latest'
+    follows the newest version; a concrete vNNN pins that one."""
+    source = _loader_source(node)
+    format_name = node.evalParm("fh_format")
+    name = node.evalParm("fh_name").strip()
+    selection = node.evalParm("fh_version").strip().lower()
+    _project, rows = _loader_rows(node)
+    named = [row for row in rows if row["name"] == name]
+    if not named:
         _error("No live %s publish named %r on that task." % (format_name, name))
         return None
-    row = max(live, key=lambda entry: entry["version"])
-    label = config.version_label(row["version"])
-    if node.evalParm("fh_version") == label:
-        _message("Already at the latest (%s)." % label)
-        return node
+    if selection.startswith("latest") or not selection:
+        row = max(named, key=lambda entry: entry["version"])
+    else:
+        want = config.parse_version_label(selection)
+        row = next((r for r in named if r["version"] == want), None)
+        if row is None:
+            _error("No %s %s of %r." % (format_name, selection, name))
+            return None
     _repoint_loader(node, format_name, row["path"])
-    node.parm("fh_version").set(label)
     _track_dependency(
         _current_context(), source, format_name, name, row["version"]
     )
-    _message("%s updated to %s." % (name, label))
+    return node
+
+
+def update_loader(node):
+    """UPDATE TO LATEST button: bump the Version field to the highest
+    published version and reload."""
+    source = _loader_source(node)
+    format_name = node.evalParm("fh_format")
+    name = node.evalParm("fh_name").strip()
+    project, _rows = _loader_rows(node)
+    row = None
+    if project is not None:
+        row = _latest_publish_row(
+            project, source["kind"], source["entity"], source["task"],
+            format_name, name,
+        )
+    if row is None:
+        _error("No live %s publish named %r on that task." % (format_name, name))
+        return None
+    label = config.version_label(row["version"])
+    node.parm("fh_version").set(label)
+    _repoint_loader(node, format_name, row["path"])
+    _track_dependency(
+        _current_context(), source, format_name, name, row["version"]
+    )
+    _message("%s updated to %s (latest)." % (name, label))
     return node
 
 
 def _repoint_loader(node, format_name, path):
     if node.parm("filepath1") is not None and not node.children():
-        # LOP reference node — one parm swap.
+        # LOP reference or usdimport SOP — one parm swap.
         node.parm("filepath1").set(_usd_entry_layer(path))
+        return
+    if node.parm("file") is not None and not node.children():
+        groups = _group_sequences(_publish_file_list(path))
+        if groups:
+            node.parm("file").set(groups[0][1])
         return
     for child in node.children():
         child.destroy()
@@ -1188,24 +1457,14 @@ def _group_sequences(files):
 
 
 def _import_usd(layer, node_name):
-    stage = hou.node("/stage")
-    if stage is not None:
-        for type_name in ("reference::2.0", "reference"):
-            try:
-                ref = stage.createNode(type_name, node_name)
-            except hou.OperationFailed:
-                continue
-            ref.parm("filepath1").set(layer)
-            ref.moveToGoodPosition()
-            try:
-                ref.setDisplayFlag(True)
-            except hou.OperationFailed:
-                pass
-            return ref
-
+    """OBJ container with a usdimport SOP — actual geometry, so FX (or
+    anything else) wires straight on top. A LOP reference is made instead
+    only when loading from a LOP network's TAB menu."""
     container = hou.node("/obj").createNode("geo", node_name)
     importer = container.createNode("usdimport", "import")
     importer.parm("filepath1").set(layer)
+    importer.setDisplayFlag(True)
+    importer.setRenderFlag(True)
     container.moveToGoodPosition()
     return container
 
