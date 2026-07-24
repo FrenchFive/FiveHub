@@ -495,8 +495,7 @@ function groupBlock(name, format, versions, showFormat) {
     el(
       "span",
       "label",
-      padVersion(versions[0].version) + " · " +
-        versions.length + (versions.length === 1 ? " VERSION" : " VERSIONS"),
+      padVersion(versions[0].version) + " · " + shortDate(versions[0].created_at),
     ),
   );
   head.addEventListener("click", () => {
