@@ -207,14 +207,14 @@ def cmd_task_delete(root, args):
 
 def cmd_scene_delete(root, args):
     row = get_project(args.project, root).delete_scene(
-        args.kind, args.entity, args.task, args.version
+        args.kind, args.entity, args.task, args.version, args.name
     )
     return {"deleted": row}
 
 
 def cmd_scene_notes(root, args):
     get_project(args.project, root).set_scene_notes(
-        args.kind, args.entity, args.task, args.version, args.notes
+        args.kind, args.entity, args.task, args.version, args.notes, args.name
     )
     return {"updated": {"version": args.version, "notes": args.notes}}
 
@@ -493,6 +493,7 @@ def build_parser():
     scene_delete.add_argument("entity")
     scene_delete.add_argument("task")
     scene_delete.add_argument("version", type=int)
+    scene_delete.add_argument("--name", default="main")
     scene_delete.set_defaults(func=cmd_scene_delete)
 
     scene_notes = commands.add_parser("scene-notes", help="edit a scene version's notes")
@@ -502,6 +503,7 @@ def build_parser():
     scene_notes.add_argument("task")
     scene_notes.add_argument("version", type=int)
     scene_notes.add_argument("--notes", default="")
+    scene_notes.add_argument("--name", default="main")
     scene_notes.set_defaults(func=cmd_scene_notes)
 
     publish_delete = commands.add_parser(
