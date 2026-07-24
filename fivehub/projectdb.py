@@ -331,7 +331,12 @@ class ProjectDB:
                    (SELECT p.thumbnail FROM publish p WHERE p.task_id = t.id
                      AND p.version IS NOT NULL AND p.status = 'complete'
                      AND p.deleted_at = '' AND p.thumbnail != ''
-                     ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1) AS image
+                     ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1) AS image,
+                   (SELECT p.created_at FROM publish p WHERE p.task_id = t.id
+                     AND p.version IS NOT NULL AND p.status = 'complete'
+                     AND p.deleted_at = ''
+                     ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1)
+                     AS last_publish_at
             FROM task t WHERE t.entity_id = ? AND t.deleted_at = '' ORDER BY t.name
         """
         with self._connect() as conn:

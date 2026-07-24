@@ -1079,6 +1079,27 @@ tbody tr:hover {
   filter: grayscale(1);
 }
 
+/* Published badge + last-publish date on task rows. */
+.task-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pub-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex: none;
+}
+
 /* Latest-publish thumbnail on task rows (entity page). */
 .entity-thumb {
   width: 44px;
