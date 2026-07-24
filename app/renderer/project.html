@@ -18,32 +18,22 @@
     <main class="content">
       <div class="stack">
         <div class="row" id="title-row"></div>
-        <div class="columns">
-          <section class="panel">
-            <div class="panel-head">
-              <div class="panel-title" data-icon="box">ASSETS</div>
-              <button class="btn small" id="add-asset" data-icon="plus">NEW ASSET</button>
-              <span class="spacer"></span>
-              <span class="label" id="assets-count"></span>
-            </div>
-            <div id="assets" class="entity-list"></div>
-          </section>
-          <section class="panel">
-            <div class="panel-head">
-              <div class="panel-title" data-icon="clapperboard">SHOTS</div>
-              <button class="btn small" id="add-shot" data-icon="plus">NEW SHOT</button>
-              <span class="spacer"></span>
-              <span class="label" id="shots-count"></span>
-            </div>
-            <div id="shots" class="entity-list"></div>
-          </section>
-        </div>
         <section class="panel">
           <div class="panel-head">
-            <div class="panel-title" data-icon="image">REFERENCES</div>
-            <button class="btn small" id="add-refs" data-icon="plus">ADD IMAGES & FILES</button>
+            <div class="seg" id="browse-tab" role="tablist">
+              <button class="seg-item" data-tab="assets" role="tab" data-icon="box">ASSETS</button>
+              <button class="seg-item" data-tab="shots" role="tab" data-icon="clapperboard">SHOTS</button>
+              <button class="seg-item" data-tab="refs" role="tab" data-icon="image">REFERENCES</button>
+            </div>
+            <button class="btn small" id="add-asset" data-icon="plus">NEW ASSET</button>
+            <button class="btn small hidden" id="add-shot" data-icon="plus">NEW SHOT</button>
+            <button class="btn small hidden" id="add-refs" data-icon="plus">ADD IMAGES & FILES</button>
+            <span class="spacer"></span>
+            <span class="label" id="browse-count"></span>
           </div>
-          <div id="refs"></div>
+          <div id="assets" class="entity-list"></div>
+          <div id="shots" class="entity-list hidden"></div>
+          <div id="refs" class="hidden"></div>
         </section>
         <section class="panel">
           <div class="panel-head">

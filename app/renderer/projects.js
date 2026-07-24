@@ -192,6 +192,55 @@ function card(project) {
   return node;
 }
 
+// Shortcut back into work: the last scenes opened from the hub.
+function renderRecent() {
+  const box = document.getElementById("recent");
+  clear(box);
+  const items = recentScenes().slice(0, 3);
+  if (!items.length) return;
+  const panel = el("section", "panel");
+  const head = el("div", "panel-head");
+  const title = el("div", "panel-title");
+  title.appendChild(icon("history"));
+  title.appendChild(el("span", null, "RECENT"));
+  head.appendChild(title);
+  panel.appendChild(head);
+  const list = el("div", "recent-list");
+  for (const item of items) {
+    const row = el("div", "recent-row");
+    const openBtn = el("button", "btn solid icon");
+    openBtn.title = "Open in Houdini";
+    openBtn.appendChild(houdiniGlyph());
+    row.appendChild(openBtn);
+    row.appendChild(
+      el(
+        "span",
+        "name",
+        `${item.project} / ${item.entity} / ${item.task}` +
+          (item.version ? " · V" + String(item.version).padStart(3, "0") : ""),
+      ),
+    );
+    row.appendChild(el("span", "spacer"));
+    row.appendChild(el("span", "meta", shortDate(item.when || "")));
+    const open = async (event) => {
+      event.stopPropagation();
+      try {
+        toast("OPENING IN HOUDINI…");
+        await window.fivehub.openScene(item.file, item.root || "");
+        rememberRecentScene({ ...item, when: new Date().toISOString() });
+        renderRecent();
+      } catch (error) {
+        toast(cliErrorText(error).toUpperCase());
+      }
+    };
+    openBtn.addEventListener("click", open);
+    row.addEventListener("click", open);
+    list.appendChild(row);
+  }
+  panel.appendChild(list);
+  box.appendChild(panel);
+}
+
 async function load() {
   try {
     const [rootInfo, listing] = await Promise.all([
@@ -346,6 +395,7 @@ async function checkForUpdate() {
 }
 
 ensureLogin().then(load);
+renderRecent();
 checkForUpdate();
 autoRefresh(load);
 autoRefresh(checkForUpdate, 300000);

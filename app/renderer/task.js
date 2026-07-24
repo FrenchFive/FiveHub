@@ -10,8 +10,23 @@ backBtn.addEventListener("click", () =>
 
 document.getElementById("context-label").textContent =
   `${context.project} · ${context.kind} ${context.entity}`;
-document.getElementById("task-title").textContent =
-  `${context.entity} / ${context.task}`;
+// Folder-style path — every parent segment is clickable.
+pathTitle(document.getElementById("task-title"), [
+  {
+    label: context.project,
+    go: () => go("project.html", { name: context.project }),
+  },
+  {
+    label: context.entity,
+    go: () =>
+      go("entity.html", {
+        project: context.project,
+        kind: context.kind,
+        name: context.entity,
+      }),
+  },
+  { label: context.task },
+]);
 document.title = `FIVEHUB — ${context.entity} / ${context.task}`;
 
 function padVersion(version) {
@@ -120,6 +135,16 @@ function scenesTable(scenes) {
       try {
         toast("OPENING " + padVersion(scene.version) + " IN HOUDINI…");
         await window.fivehub.openScene(scene.file, projectRoot);
+        rememberRecentScene({
+          project: context.project,
+          kind: context.kind,
+          entity: context.entity,
+          task: context.task,
+          version: scene.version,
+          file: scene.file,
+          root: projectRoot,
+          when: new Date().toISOString(),
+        });
       } catch (error) {
         toast(cliErrorText(error).toUpperCase());
       }
