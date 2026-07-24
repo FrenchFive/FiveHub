@@ -442,6 +442,28 @@ class PublishTests(unittest.TestCase):
         with open(os.path.join(*parts), "r", encoding="utf-8") as handle:
             return handle.read()
 
+    def test_entity_image_follows_production_order(self):
+        # Task image = latest publish thumbnail; entity image = the task
+        # image closest to the end of production (lookdev beats modeling).
+        publish_usd(self.project, "asset", "TestCrate", "modeling",
+                    usd_request(self.tmp.name))
+        tree = self.project.browse()
+        entity = tree["assets"][0]
+        modeling = next(t for t in entity["tasks"] if t["name"] == "modeling")
+        self.assertTrue(modeling["image"])
+        self.assertTrue(os.path.isfile(modeling["image"]))
+        self.assertEqual(entity["image"], modeling["image"])
+
+        self.project.create_task("asset", "TestCrate", "lookdev")
+        publish_usd(self.project, "asset", "TestCrate", "lookdev",
+                    usd_request(self.tmp.name))
+        tree = self.project.browse()
+        entity = tree["assets"][0]
+        lookdev = next(t for t in entity["tasks"] if t["name"] == "lookdev")
+        self.assertTrue(lookdev["image"])
+        self.assertEqual(entity["image"], lookdev["image"])
+        self.assertNotEqual(entity["image"], modeling["image"])
+
     def test_material_coverage_blocks_only_lookdev_tasks(self):
         # A modeling publish ships before lookdev exists: no materials is a
         # warning there, but the same publish into lookdev is blocked.

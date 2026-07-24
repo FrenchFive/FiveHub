@@ -970,6 +970,16 @@ tbody tr:hover {
   filter: grayscale(1);
 }
 
+/* Latest-publish thumbnail on asset/shot blocks and task rows. */
+.entity-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: var(--hairline);
+  background: var(--surface);
+}
+
 .status-pass,
 .status-fail {
   display: inline-block;
