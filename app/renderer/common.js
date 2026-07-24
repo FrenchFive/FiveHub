@@ -22,6 +22,44 @@ function go(page, params) {
   window.location.href = page + (query ? "?" + query : "");
 }
 
+// Folder-style clickable path title: TEST / TEST_01 / animation — every
+// parent segment navigates back up the hierarchy.
+function pathTitle(container, segments) {
+  clear(container);
+  segments.forEach((segment, index) => {
+    if (index) container.appendChild(el("span", "crumb-sep", "/"));
+    if (segment.go) {
+      const link = el("span", "crumb", segment.label);
+      link.title = "Open " + segment.label;
+      link.addEventListener("click", segment.go);
+      container.appendChild(link);
+    } else {
+      container.appendChild(el("span", null, segment.label));
+    }
+  });
+}
+
+// Recently opened scenes (localStorage) — shortcuts on the home page.
+const RECENT_SCENES_KEY = "fivehub.recentScenes";
+
+function recentScenes() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_SCENES_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecentScene(entry) {
+  const list = recentScenes().filter((item) => item.file !== entry.file);
+  list.unshift(entry);
+  try {
+    localStorage.setItem(RECENT_SCENES_KEY, JSON.stringify(list.slice(0, 6)));
+  } catch {
+    // storage full/blocked — shortcuts are a convenience only
+  }
+}
+
 function shortDate(iso) {
   return (iso || "").replace("T", " ").replace("Z", "").slice(0, 16);
 }
@@ -122,6 +160,9 @@ const LUCIDE = {
     '<path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>',
   folder:
     '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  history:
+    '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>' +
+    '<path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
 };
 
 function icon(name) {

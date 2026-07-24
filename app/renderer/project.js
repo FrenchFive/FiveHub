@@ -6,6 +6,47 @@ const { name: projectName } = queryParams();
 let defaultTasks = [];
 let projectSettings = {};
 
+// ASSETS | SHOTS | REFERENCES — one at a time, remembered per project so
+// the next visit reopens where the user was.
+const BROWSE_TAB_KEY = "fivehub.browseTab." + projectName;
+const BROWSE_SECTIONS = {
+  assets: { box: "assets", button: "add-asset", unit: "ASSET(S)" },
+  shots: { box: "shots", button: "add-shot", unit: "SHOT(S)" },
+  refs: { box: "refs", button: "add-refs", unit: "REFERENCE(S)" },
+};
+let browseTab = localStorage.getItem(BROWSE_TAB_KEY) || "assets";
+if (!BROWSE_SECTIONS[browseTab]) browseTab = "assets";
+const tabCounts = { assets: 0, shots: 0, refs: 0 };
+
+function updateBrowseCount() {
+  document.getElementById("browse-count").textContent =
+    tabCounts[browseTab] + " " + BROWSE_SECTIONS[browseTab].unit;
+}
+
+function applyBrowseTab() {
+  for (const button of document.querySelectorAll("#browse-tab .seg-item")) {
+    button.classList.toggle("on", button.dataset.tab === browseTab);
+  }
+  for (const [tab, spec] of Object.entries(BROWSE_SECTIONS)) {
+    document.getElementById(spec.box).classList.toggle("hidden", tab !== browseTab);
+    document.getElementById(spec.button).classList.toggle("hidden", tab !== browseTab);
+  }
+  updateBrowseCount();
+}
+
+for (const button of document.querySelectorAll("#browse-tab .seg-item")) {
+  button.addEventListener("click", () => {
+    browseTab = button.dataset.tab;
+    try {
+      localStorage.setItem(BROWSE_TAB_KEY, browseTab);
+    } catch {
+      // storage blocked — the tab just won't persist
+    }
+    applyBrowseTab();
+  });
+}
+applyBrowseTab();
+
 const searchInput = document.getElementById("search");
 let lastTree = null;
 
@@ -191,7 +232,8 @@ function entityCard(kind, entity) {
 
 function fillAssets(entities) {
   const container = document.getElementById("assets");
-  document.getElementById("assets-count").textContent = String(entities.length);
+  tabCounts.assets = entities.length;
+  updateBrowseCount();
   clear(container);
   const visible = entities.filter(matches);
   if (!visible.length) {
@@ -207,7 +249,8 @@ function fillAssets(entities) {
 
 function fillShots(entities) {
   const container = document.getElementById("shots");
-  document.getElementById("shots-count").textContent = String(entities.length);
+  tabCounts.shots = entities.length;
+  updateBrowseCount();
   clear(container);
   const visible = entities.filter(matches);
   if (!visible.length) {
@@ -236,6 +279,8 @@ function fillShots(entities) {
 
 function renderRefs(refs) {
   const container = document.getElementById("refs");
+  tabCounts.refs = refs.length;
+  updateBrowseCount();
   clear(container);
   if (!refs.length) {
     container.appendChild(el("div", "label", "NO REFERENCES YET — BOARDS, BRIEFS, STILLS"));

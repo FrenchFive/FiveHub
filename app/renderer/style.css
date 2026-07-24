@@ -831,6 +831,57 @@ tbody tr:hover {
   color: var(--surface);
 }
 
+/* Folder-style clickable path in page titles. */
+.title .crumb {
+  cursor: pointer;
+  transition: opacity var(--fast) var(--spring);
+}
+
+.title .crumb:hover {
+  opacity: 0.55;
+}
+
+.title .crumb-sep {
+  color: var(--ink-2);
+  font-weight: 300;
+  margin: 0 12px;
+}
+
+/* Recently opened scenes — shortcuts on the home page. */
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  background: var(--wash);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--fast) var(--spring),
+    transform var(--fast) var(--pop);
+}
+
+.recent-row:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+
+.recent-row .name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.recent-row .meta {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
 /* Publishes grouped by name — the chevron reveals the version history. */
 .pub-groups {
   display: flex;

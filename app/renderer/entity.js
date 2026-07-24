@@ -91,7 +91,14 @@ async function load() {
     }
     entityData = entity;
 
-    document.getElementById("entity-title").textContent = entity.name;
+    // Folder-style path — the project segment navigates back.
+    pathTitle(document.getElementById("entity-title"), [
+      {
+        label: projectName,
+        go: () => go("project.html", { name: projectName }),
+      },
+      { label: entity.name },
+    ]);
     const heroImage = document.getElementById("entity-image");
     if (entity.image) {
       heroImage.src = window.fivehub.fileUrl(entity.image);
