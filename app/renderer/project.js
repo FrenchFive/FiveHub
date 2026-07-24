@@ -140,6 +140,14 @@ const taskSheet = (kind, entityName) =>
 function entityBlock(kind, entity) {
   const block = el("div", "entity-block");
   const head = el("div", "entity-head");
+  if (entity.image) {
+    // Latest publish thumbnail, picked by production order (lookdev
+    // beats modeling) — the closest look at the current state.
+    const img = el("img", "entity-thumb");
+    img.src = window.fivehub.fileUrl(entity.image);
+    img.alt = "";
+    head.appendChild(img);
+  }
   const title = el("div", "name", entity.name);
   head.appendChild(title);
   if (kind === "shot" && entity.frame_start) {
