@@ -389,7 +389,70 @@ class ProjectTests(unittest.TestCase):
                 "entity": "SH010",
                 "task": "fx",
                 "file": "SH010_fx_v001.hip",
+                "scene_name": "main",
             },
+        )
+
+    def test_v3_scene_table_migrates_to_named_streams(self):
+        # A live v3 database (scene table without a name column) must gain
+        # the column and carry its rows into the 'main' stream on open.
+        import sqlite3
+
+        from fivehub import projectdb
+
+        project = create_project("Legacy", hub_root=self.hub)
+        project.create_entity("asset", "Widget")
+        project.create_task("asset", "Widget", "modeling")
+        db_path = project.db.path
+        project.db  # ensure created
+
+        # Rewrite the scene table to look like v3 (no name column, v3 uniq).
+        with sqlite3.connect(db_path) as conn:
+            conn.executescript(
+                "DROP TABLE scene;"
+                "CREATE TABLE scene (id TEXT PRIMARY KEY, task_id TEXT,"
+                " version INTEGER, file TEXT, notes TEXT DEFAULT '',"
+                " user TEXT DEFAULT '', status TEXT DEFAULT 'complete',"
+                " deleted_at TEXT DEFAULT '', created_at TEXT,"
+                " UNIQUE(task_id, version));"
+            )
+            task_id = conn.execute("SELECT id FROM task").fetchone()[0]
+            conn.execute(
+                "INSERT INTO scene (id, task_id, version, file, created_at)"
+                " VALUES ('s1', ?, 1, 'assets/Widget/modeling/scenes/x.hip',"
+                " '2026-01-01T00:00:00Z')",
+                (task_id,),
+            )
+            conn.execute("PRAGMA user_version = 3")
+
+        fresh = projectdb.ProjectDB(db_path)
+        scenes = fresh.list_scenes(task_id)
+        self.assertEqual(len(scenes), 1)
+        self.assertEqual(scenes[0]["name"], "main")
+        self.assertEqual(scenes[0]["version"], 1)
+
+    def test_named_scene_streams_version_independently(self):
+        # Several fx setups on one shot save as separate named streams,
+        # each versioned on its own; the name round-trips via the path.
+        project = create_project("Streams", hub_root=self.hub)
+        project.create_entity("shot", "SH020")
+        project.create_task("shot", "SH020", "fx")
+        smoke1, v1 = project.register_scene(
+            "shot", "SH020", "fx", user="A", name="smoke"
+        )
+        smoke2, v2 = project.register_scene(
+            "shot", "SH020", "fx", user="A", name="smoke"
+        )
+        debris1, v3 = project.register_scene(
+            "shot", "SH020", "fx", user="A", name="debris"
+        )
+        self.assertEqual((v1, v2, v3), (1, 2, 1))
+        self.assertTrue(smoke2.endswith("SH020_fx_smoke_v002.hip"), smoke2)
+        self.assertTrue(debris1.endswith("SH020_fx_debris_v001.hip"), debris1)
+        names = {s["name"] for s in project.scenes("shot", "SH020", "fx")}
+        self.assertEqual(names, {"smoke", "debris"})
+        self.assertEqual(
+            parse_scene_path(smoke2, self.hub)["scene_name"], "smoke"
         )
         self.assertIsNone(parse_scene_path("/somewhere/else.hip", self.hub))
         self.assertIsNone(parse_scene_path("", self.hub))
@@ -1452,10 +1515,13 @@ class UninstallerTests(unittest.TestCase):
                 [sys.executable, "install.py", "--no-pip", "--no-fonts",
                  "--no-splash", "--no-app", "--no-shortcut"],
                 cwd=REPO, capture_output=True, text=True, env=env,
-                timeout=120, check=True,
+                timeout=120, check=True, stdin=subprocess.DEVNULL,
             )
             package = os.path.join(prefs, "packages", "fivehub.json")
             self.assertTrue(os.path.isfile(package))
+            houdini_env = os.path.join(prefs, "houdini.env")
+            with open(houdini_env, encoding="utf-8") as handle:
+                self.assertIn("FIVEHUB BEGIN", handle.read())
 
             completed = subprocess.run(
                 [sys.executable, "uninstall.py", "--no-app", "--no-fonts",
@@ -1464,6 +1530,8 @@ class UninstallerTests(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertFalse(os.path.exists(package))
+            with open(houdini_env, encoding="utf-8") as handle:
+                self.assertNotIn("FIVEHUB BEGIN", handle.read())
             self.assertFalse(os.path.exists(desktop))
             self.assertFalse(os.path.exists(login))
             self.assertFalse(os.path.exists(hub))
@@ -1572,11 +1640,15 @@ class InstallerTests(unittest.TestCase):
                 [sys.executable, "install.py", "--no-pip", "--no-fonts",
                  "--no-splash", "--no-app"],
                 cwd=REPO, capture_output=True, text=True, env=env, timeout=120,
+                stdin=subprocess.DEVNULL,
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
             for version in ("houdini20.5", "houdini21.0"):
                 package = os.path.join(home, version, "packages", "fivehub.json")
                 self.assertTrue(os.path.isfile(package), package)
+                with open(os.path.join(home, version, "houdini.env"),
+                          encoding="utf-8") as handle:
+                    self.assertIn("HOUDINI_SPLASH_FILE", handle.read())
             self.assertIn("FIVE HUB menu", completed.stdout)
 
     def test_houdini_installer_auto_flag(self):

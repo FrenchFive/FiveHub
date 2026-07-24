@@ -47,20 +47,22 @@ async function editSceneNotes(scene) {
     },
   });
   if (!values) return;
-  await window.fivehub.sceneNotes(context, scene.version, values.notes);
+  await window.fivehub.sceneNotes(
+    context, scene.version, values.notes, scene.name || "main",
+  );
   toast("NOTES UPDATED");
   load();
 }
 
 async function deleteScene(scene) {
   const ok = await confirmSheet(
-    "Delete scene " + padVersion(scene.version) + "?",
+    "Delete scene " + (scene.name || "main") + " " + padVersion(scene.version) + "?",
     "The version entry and its .hip file are removed. This cannot be undone.",
     "DELETE VERSION",
   );
   if (!ok) return;
   try {
-    await window.fivehub.sceneDelete(context, scene.version);
+    await window.fivehub.sceneDelete(context, scene.version, scene.name || "main");
     toast(padVersion(scene.version) + " DELETED");
     load();
   } catch (error) {
@@ -106,82 +108,123 @@ async function deletePublish(publish) {
   }
 }
 
+const expandedScenes = new Set(); // survives autoRefresh re-renders
+
+async function openScene(scene) {
+  try {
+    toast("OPENING " + padVersion(scene.version) + " IN HOUDINI…");
+    await window.fivehub.openScene(scene.file, projectRoot);
+    rememberRecentScene({
+      project: context.project,
+      kind: context.kind,
+      entity: context.entity,
+      task: context.task,
+      name: scene.name || "main",
+      version: scene.version,
+      file: scene.file,
+      root: projectRoot,
+      when: new Date().toISOString(),
+    });
+  } catch (error) {
+    toast(cliErrorText(error).toUpperCase());
+  }
+}
+
+function openSceneButton(scene) {
+  const btn = el("button", "btn solid icon");
+  btn.title = "Open " + padVersion(scene.version) + " in Houdini";
+  btn.setAttribute("aria-label", btn.title);
+  btn.appendChild(houdiniGlyph());
+  btn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openScene(scene);
+  });
+  return btn;
+}
+
+function sceneMenu(scene) {
+  return [
+    {
+      label: "Copy path",
+      action: async () => {
+        await window.fivehub.copy(scene.file);
+        toast("SCENE PATH COPIED");
+      },
+    },
+    { label: "Reveal file", action: () => window.fivehub.reveal(scene.file) },
+    { label: "Edit notes", action: () => editSceneNotes(scene) },
+    "-",
+    { label: "Delete version", danger: true, action: () => deleteScene(scene) },
+  ];
+}
+
+function sceneVersionRow(scene) {
+  const row = el("div", "pub-version");
+  row.appendChild(el("span", "pub-ver mono", padVersion(scene.version)));
+  row.appendChild(el("span", "pub-meta", scene.user || "—"));
+  row.appendChild(el("span", "pub-meta", shortDate(scene.created_at)));
+  if (scene.notes) row.appendChild(el("span", "pub-meta", scene.notes));
+  row.appendChild(el("span", "spacer"));
+  row.appendChild(openSceneButton(scene));
+  row.appendChild(dotsButton(() => sceneMenu(scene)));
+  return row;
+}
+
+// One collapsed element per scene NAME — several fx setups on one shot
+// each keep their own version history behind the chevron.
+function sceneGroupBlock(name, versions) {
+  const key = "scene::" + name;
+  const expanded = expandedScenes.has(key);
+  const latest = versions[0];
+  const box = el("div", "pub-group");
+  const head = el("div", "pub-group-head");
+  const chevron = el("span", "chevron" + (expanded ? " open" : ""));
+  chevron.appendChild(icon("chevron-right"));
+  head.appendChild(chevron);
+  head.appendChild(el("span", "pub-name", name));
+  head.appendChild(el("span", "spacer"));
+  head.appendChild(
+    el("span", "label", padVersion(latest.version) + " · " +
+      shortDate(latest.created_at)),
+  );
+  head.appendChild(openSceneButton(latest));
+  head.addEventListener("click", (event) => {
+    if (event.target.closest(".btn")) return;
+    if (expandedScenes.has(key)) expandedScenes.delete(key);
+    else expandedScenes.add(key);
+    renderScenes();
+  });
+  box.appendChild(head);
+  if (expanded) {
+    const list = el("div", "pub-versions");
+    for (const scene of versions) list.appendChild(sceneVersionRow(scene));
+    box.appendChild(list);
+  }
+  return box;
+}
+
 function scenesTable(scenes) {
   if (!scenes.length) return el("div", "label", "NO SCENES SAVED YET");
-  const table = el("table");
-  const head = el("thead");
-  const headRow = el("tr");
-  for (const column of ["VERSION", "USER", "SAVED", "NOTES", ""]) {
-    headRow.appendChild(el("th", null, column));
-  }
-  head.appendChild(headRow);
-  table.appendChild(head);
-
-  const body = el("tbody");
+  const groups = new Map();
   for (const scene of scenes) {
-    const row = el("tr");
-    row.appendChild(el("td", null, padVersion(scene.version)));
-    row.appendChild(el("td", null, scene.user || "—"));
-    row.appendChild(el("td", null, shortDate(scene.created_at)));
-    row.appendChild(el("td", null, scene.notes || "—"));
-    const actions = el("td", "row-actions");
-
-    // Primary action: just the Houdini mark, nothing more.
-    const openBtn = el("button", "btn solid icon");
-    openBtn.title = "Open " + padVersion(scene.version) + " in Houdini";
-    openBtn.setAttribute("aria-label", openBtn.title);
-    openBtn.appendChild(houdiniGlyph());
-    openBtn.addEventListener("click", async () => {
-      try {
-        toast("OPENING " + padVersion(scene.version) + " IN HOUDINI…");
-        await window.fivehub.openScene(scene.file, projectRoot);
-        rememberRecentScene({
-          project: context.project,
-          kind: context.kind,
-          entity: context.entity,
-          task: context.task,
-          version: scene.version,
-          file: scene.file,
-          root: projectRoot,
-          when: new Date().toISOString(),
-        });
-      } catch (error) {
-        toast(cliErrorText(error).toUpperCase());
-      }
-    });
-    actions.appendChild(openBtn);
-
-    // Everything else lives behind the dots.
-    actions.appendChild(
-      dotsButton(() => [
-        {
-          label: "Copy path",
-          action: async () => {
-            await window.fivehub.copy(scene.file);
-            toast("SCENE PATH COPIED");
-          },
-        },
-        {
-          label: "Reveal file",
-          action: () => window.fivehub.reveal(scene.file),
-        },
-        {
-          label: "Edit notes",
-          action: () => editSceneNotes(scene),
-        },
-        "-",
-        {
-          label: "Delete version",
-          danger: true,
-          action: () => deleteScene(scene),
-        },
-      ]),
-    );
-    row.appendChild(actions);
-    body.appendChild(row);
+    const name = scene.name || "main";
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(scene);
   }
-  table.appendChild(body);
-  return table;
+  const wrap = el("div", "pub-groups");
+  for (const [name, versions] of [...groups.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0]),
+  )) {
+    versions.sort((a, b) => b.version - a.version);
+    wrap.appendChild(sceneGroupBlock(name, versions));
+  }
+  return wrap;
+}
+
+function renderScenes() {
+  const box = document.getElementById("scenes");
+  clear(box);
+  box.appendChild(scenesTable((lastInfo && lastInfo.scenes) || []));
 }
 
 // Everything that would clutter a publish line lives here instead.
@@ -193,10 +236,16 @@ function detailsSheet(publish) {
     submitLabel: "CLOSE",
     hideCancel: true,
     build(body) {
-      const add = (labelText, value) => {
+      const grid = el("div", "detail-grid");
+      body.appendChild(grid);
+      const add = (labelText, value, mono) => {
         if (!value) return;
-        const field = sheetField(body, labelText);
-        field.appendChild(el("span", "mono", String(value)));
+        const row = el("div", "detail-row");
+        row.appendChild(el("div", "detail-key", labelText));
+        row.appendChild(
+          el("div", "detail-val" + (mono ? " mono" : ""), String(value)),
+        );
+        grid.appendChild(row);
       };
       add("FORMAT", (publish.format || "").toUpperCase());
       add("VARIANT", publish.variant);
@@ -208,9 +257,9 @@ function detailsSheet(publish) {
       add("BY", publish.user);
       add("PUBLISHED", shortDate(publish.created_at));
       add("COMMENT", publish.comment);
-      add("SOURCE SCENE", publish.source_file);
-      add("FILES", publish.path);
-      add("REPORT", publish.report_path);
+      add("SOURCE SCENE", publish.source_file, true);
+      add("FILES", publish.path, true);
+      add("REPORT", publish.report_path, true);
       return () => ({ closed: true });
     },
   });
@@ -495,8 +544,7 @@ function groupBlock(name, format, versions, showFormat) {
     el(
       "span",
       "label",
-      padVersion(versions[0].version) + " · " +
-        versions.length + (versions.length === 1 ? " VERSION" : " VERSIONS"),
+      padVersion(versions[0].version) + " · " + shortDate(versions[0].created_at),
     ),
   );
   head.addEventListener("click", () => {
@@ -570,9 +618,8 @@ async function load() {
       ? "IN USE — " + others.map((p) => p.user).join(", ")
       : "";
 
-    clear(scenesBox);
-    scenesBox.appendChild(scenesTable(info.scenes));
     lastInfo = info;
+    renderScenes();
     renderPublishes();
 
     const depsSection = document.getElementById("deps-section");

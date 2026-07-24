@@ -86,7 +86,7 @@ for p in (root, os.path.join(root, "houdini")):
     if p and p not in sys.path:
         sys.path.insert(0, p)
 import fivehub_houdini
-fivehub_houdini.load_asset()]]></script>
+fivehub_houdini.load_asset(kwargs)]]></script>
   </tool>
 
   <tool name="fivehub_cache_node" label="FiveHub File Cache" icon="SOP_filecache">

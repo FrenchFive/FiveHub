@@ -42,10 +42,10 @@ contextBridge.exposeInMainWorld("fivehub", {
   entityDelete: (project, kind, name) =>
     ipcRenderer.invoke("hub:entityDelete", project, kind, name),
   taskDelete: (context) => ipcRenderer.invoke("hub:taskDelete", context),
-  sceneDelete: (context, version) =>
-    ipcRenderer.invoke("hub:sceneDelete", context, version),
-  sceneNotes: (context, version, notes) =>
-    ipcRenderer.invoke("hub:sceneNotes", context, version, notes),
+  sceneDelete: (context, version, name) =>
+    ipcRenderer.invoke("hub:sceneDelete", context, version, name),
+  sceneNotes: (context, version, notes, name) =>
+    ipcRenderer.invoke("hub:sceneNotes", context, version, notes, name),
   publishDelete: (context, format, version) =>
     ipcRenderer.invoke("hub:publishDelete", context, format, version),
   publishComment: (context, format, version, comment) =>

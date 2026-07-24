@@ -164,7 +164,33 @@ def version_label(version):
     return "v%03d" % int(version)
 
 
-def scene_file_name(entity, task, version, extension=None):
-    return "%s_%s_%s%s" % (
-        entity, task, version_label(version), extension or SCENE_EXTENSION,
+def parse_version_label(text):
+    """'v002' / 'V2' / '2' -> 2, or None when it is not a version."""
+    import re
+
+    match = re.search(r"(\d+)", str(text))
+    return int(match.group(1)) if match else None
+
+
+def scene_file_name(entity, task, version, extension=None, name="main"):
+    """``<Entity>_<task>[_<scene name>]_v###.<ext>`` — the default 'main'
+    stream keeps the legacy two-part filenames."""
+    middle = "" if not name or name == "main" else "_" + name
+    return "%s_%s%s_%s%s" % (
+        entity, task, middle, version_label(version),
+        extension or SCENE_EXTENSION,
     )
+
+
+def scene_name_from_file(filename, entity, task):
+    """Recover the scene stream name from a pipeline scene filename."""
+    import re
+
+    base = os.path.splitext(os.path.basename(filename))[0]
+    prefix = "%s_%s_" % (entity, task)
+    if not base.startswith(prefix):
+        return "main"
+    match = re.match(r"(?:(.+)_)?v\d+$", base[len(prefix):])
+    if not match or not match.group(1):
+        return "main"
+    return match.group(1)

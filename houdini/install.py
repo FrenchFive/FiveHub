@@ -60,12 +60,57 @@ def package_payload():
     }
 
 
+ENV_BEGIN = "# FIVEHUB BEGIN (managed block — do not edit inside)"
+ENV_END = "# FIVEHUB END"
+
+
+def _splash_env_lines():
+    return [
+        ENV_BEGIN,
+        'HOUDINI_SPLASH_FILE = "%s/houdini/splash/fivehub_splash.png"'
+        % REPO.replace("\\", "/"),
+        'HOUDINI_SPLASH_MESSAGE = "FIVE HUB pipeline — validated USD publishes"',
+        ENV_END,
+    ]
+
+
+def update_houdini_env(prefs_dir, remove=False):
+    """Manage the FIVEHUB block in houdini.env. The env file is read
+    earlier than packages in Houdini's startup, which makes the splash
+    variables reliable across builds — the package still sets everything
+    else. Rerunning is idempotent; ``remove=True`` strips the block."""
+    env_path = os.path.join(prefs_dir, "houdini.env")
+    lines = []
+    if os.path.isfile(env_path):
+        with open(env_path, "r", encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    cleaned = []
+    inside = False
+    for line in lines:
+        if line.strip() == ENV_BEGIN:
+            inside = True
+            continue
+        if line.strip() == ENV_END:
+            inside = False
+            continue
+        if not inside:
+            cleaned.append(line)
+    if not remove:
+        if cleaned and cleaned[-1].strip():
+            cleaned.append("")
+        cleaned.extend(_splash_env_lines())
+    with open(env_path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(cleaned).rstrip("\n") + "\n")
+    return env_path
+
+
 def install(prefs_dir):
     packages_dir = os.path.join(prefs_dir, "packages")
     os.makedirs(packages_dir, exist_ok=True)
     target = os.path.join(packages_dir, "fivehub.json")
     with open(target, "w", encoding="utf-8") as handle:
         json.dump(package_payload(), handle, indent=4)
+    update_houdini_env(prefs_dir)
     return target
 
 
