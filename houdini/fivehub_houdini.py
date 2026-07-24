@@ -569,13 +569,20 @@ def _capture_thumbnail(nodes, path):
 # -- publish -------------------------------------------------------------
 
 
+def _is_publish_node(node):
+    return node is not None and node.parm("fh_publish") is not None
+
+
 def publish():
+    """Every publish goes THROUGH a FIVEHUB PUBLISH node — there is no
+    publish-from-selection. Selecting a PUBLISH node reruns it; selecting
+    a plain SOP creates the node (the dialog seeds its parms once) and
+    publishes through it, so the scene always shows what shipped."""
     from fivehub_windows import PublishDialog, exec_dialog
 
-    nodes = hou.selectedNodes()
-    if not nodes:
-        _message("Select the geo objects (or SOPs) to publish.")
-        return None
+    selected = hou.selectedNodes()
+    if selected and _is_publish_node(selected[0]):
+        return publish_from_node(selected[0])
 
     # Publishing is only available from a scene saved in the pipeline —
     # the context is derived from the scene, never chosen at publish time.
@@ -595,6 +602,17 @@ def publish():
         _error(str(error))
         return None
 
+    if not (
+        selected
+        and selected[0].type().category() == hou.sopNodeTypeCategory()
+    ):
+        _message(
+            "Select the SOP to publish (or an existing PUBLISH node).\n"
+            "Several pieces? Merge them first — the PUBLISH node ships "
+            "its input chain."
+        )
+        return None
+
     dialog = PublishDialog(context=context)
     dialog.set_frame_range(*_entity_frame_range(project, context))
     if not exec_dialog(dialog):
@@ -603,7 +621,33 @@ def publish():
     if not values["name"]:
         _error("A publish name is required.")
         return None
-    return _run_publish(nodes, context, project, values)
+
+    node = create_publish_node()
+    if node is None:
+        return None
+    _apply_publish_values(node, values)
+    return publish_from_node(node)
+
+
+def _apply_publish_values(node, values):
+    """Seed a PUBLISH node's parms from the dialog — the node carries the
+    how, so the publish is reproducible by anyone later."""
+    node.parm("fh_name").set(values["name"])
+    try:
+        node.parm("fh_format").set(PUBLISH_FORMATS.index(values["format"]))
+    except ValueError:
+        pass
+    node.parm("fh_variant").set(values.get("variant") or "default")
+    node.parm("fh_comment").set(values.get("comment") or "")
+    node.parm("fh_animated").set(1 if values.get("animated") else 0)
+    if values.get("animated"):
+        if values.get("frame_start") is not None:
+            node.parm("fh_fstart").set(int(values["frame_start"]))
+        if values.get("frame_end") is not None:
+            node.parm("fh_fend").set(int(values["frame_end"]))
+    node.setName(
+        "PUBLISH_" + naming.make_identifier(values["name"]), unique_name=True
+    )
 
 
 def _run_publish(nodes, context, project, values):
