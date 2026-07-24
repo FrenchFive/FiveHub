@@ -260,6 +260,7 @@ def publish_usd(project, kind, entity, task, request, rule_config=None):
         kind, entity, task, "usd", version, report,
         path=entry_layer, report_path=report_path, thumbnail=thumbnail_abs,
         comment=request.comment, user=request.source.user,
+        source_file=request.source.scene,
     )
 
     return PublishResult(
@@ -316,6 +317,7 @@ def publish_files(project, kind, entity, task, request, rule_config=None):
         kind, entity, task, request.format, version, report,
         path=version_dir, report_path=report_path, thumbnail=thumbnail_abs,
         comment=request.comment, user=request.source.user,
+        source_file=request.source.scene,
     )
 
     return PublishResult(

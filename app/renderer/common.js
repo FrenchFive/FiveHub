@@ -40,6 +40,27 @@ function toast(message) {
   toastTimer = setTimeout(() => node.classList.remove("show"), 2600);
 }
 
+// Full-screen image inspector — click anywhere or Escape to close.
+function openLightbox(src, alt) {
+  const overlay = el("div", "overlay lightbox");
+  const img = el("img", "lightbox-image");
+  img.src = src;
+  img.alt = alt || "";
+  overlay.appendChild(img);
+  const onKey = (event) => {
+    if (event.key === "Escape") close();
+  };
+  const close = () => {
+    overlay.classList.remove("show");
+    document.removeEventListener("keydown", onKey);
+    setTimeout(() => overlay.remove(), 260);
+  };
+  overlay.addEventListener("click", close);
+  document.addEventListener("keydown", onKey);
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("show"));
+}
+
 function showError(container, error) {
   clear(container);
   const box = el("div", "error-state");
@@ -68,7 +89,10 @@ function houdiniGlyph() {
 // Modal sheet. `build(body)` fills the form and returns a collect function:
 // return the values object to submit, or null to block (missing input).
 // Resolves with the values, or null when dismissed (unless allowCancel:false).
-function openSheet({ title, submitLabel, build, allowCancel = true, danger = false }) {
+function openSheet({
+  title, submitLabel, build, allowCancel = true, danger = false,
+  hideCancel = false,
+}) {
   return new Promise((resolve) => {
     const overlay = el("div", "overlay");
     const sheet = el("div", "sheet");
@@ -97,9 +121,11 @@ function openSheet({ title, submitLabel, build, allowCancel = true, danger = fal
     };
 
     if (allowCancel) {
-      const cancelBtn = el("button", "btn", "CANCEL");
-      cancelBtn.addEventListener("click", () => close(null));
-      footer.appendChild(cancelBtn);
+      if (!hideCancel) {
+        const cancelBtn = el("button", "btn", "CANCEL");
+        cancelBtn.addEventListener("click", () => close(null));
+        footer.appendChild(cancelBtn);
+      }
       overlay.addEventListener("click", (event) => {
         if (event.target === overlay) close(null);
       });

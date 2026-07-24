@@ -21,7 +21,12 @@ function taskRow(task) {
   if (task.image) {
     const img = el("img", "entity-thumb");
     img.src = window.fivehub.fileUrl(task.image);
-    img.alt = "";
+    img.alt = task.name;
+    img.title = "Inspect image";
+    img.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openLightbox(img.src, task.name);
+    });
     head.appendChild(img);
   }
   head.appendChild(el("div", "name", task.name));
@@ -132,6 +137,10 @@ async function load() {
 
 document.getElementById("add-task").addEventListener("click", () =>
   taskSheetShared(projectName, kind, entityName, defaultTasks, load),
+);
+
+document.getElementById("entity-image").addEventListener("click", (event) =>
+  openLightbox(event.currentTarget.src, entityName),
 );
 
 document.getElementById("entity-menu").addEventListener("click", (event) => {

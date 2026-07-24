@@ -16,7 +16,7 @@ sys.path.insert(0, REPO)
 
 from fivehub import config, geometry, naming, user
 from fivehub.demo import cube_mesh, run_demo
-from fivehub.geometry import MaterialData, PublishRequest
+from fivehub.geometry import MaterialData, PublishRequest, SourceInfo
 from fivehub.project import create_project, get_project, list_projects, parse_scene_path
 from fivehub.publish import FilePublishRequest, publish_files, publish_usd
 from fivehub.report import Severity, Status, ValidationReport
@@ -441,6 +441,21 @@ class PublishTests(unittest.TestCase):
     def read(self, *parts):
         with open(os.path.join(*parts), "r", encoding="utf-8") as handle:
             return handle.read()
+
+    def test_publish_records_source_scene(self):
+        # The hip that produced a publish is provenance — stored with the
+        # row and surfaced in the app's More Details sheet.
+        request = usd_request(self.tmp.name)
+        request.source = SourceInfo(
+            dcc="houdini", scene="/job/scenes/TestCrate_modeling_v002.hip",
+            user="FIVE",
+        )
+        publish_usd(self.project, "asset", "TestCrate", "modeling", request)
+        row = self.project.publishes("asset", "TestCrate", "modeling")[0]
+        self.assertTrue(
+            row["source_file"].endswith("TestCrate_modeling_v002.hip"),
+            row["source_file"],
+        )
 
     def test_entity_image_follows_production_order(self):
         # Task image = latest publish thumbnail; entity image = the task
