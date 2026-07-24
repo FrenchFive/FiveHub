@@ -970,7 +970,7 @@ tbody tr:hover {
   filter: grayscale(1);
 }
 
-/* Latest-publish thumbnail on asset/shot blocks and task rows. */
+/* Latest-publish thumbnail on task rows (entity page). */
 .entity-thumb {
   width: 44px;
   height: 44px;
@@ -978,6 +978,70 @@ tbody tr:hover {
   border-radius: var(--radius-sm);
   border: var(--hairline);
   background: var(--surface);
+}
+
+/* Project view: compact asset/shot cards — image + name only, the rest
+   is one click away on the entity page. */
+.entity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.entity-card {
+  background: var(--wash);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  transition: transform var(--fast) var(--pop),
+    border-color var(--fast) var(--spring);
+}
+
+.entity-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+}
+
+.entity-card-image,
+.entity-card-empty {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  border: var(--hairline);
+  background: var(--surface);
+}
+
+.entity-card-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.entity-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.entity-card .name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-pass,
