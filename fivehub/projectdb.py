@@ -27,7 +27,7 @@ from contextlib import contextmanager
 
 from .report import utc_now
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS entity (
@@ -59,6 +59,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_task_alive
 CREATE TABLE IF NOT EXISTS scene (
     id          TEXT PRIMARY KEY,
     task_id     TEXT NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL DEFAULT 'main',
     version     INTEGER NOT NULL,
     file        TEXT NOT NULL,
     notes       TEXT NOT NULL DEFAULT '',
@@ -66,7 +67,7 @@ CREATE TABLE IF NOT EXISTS scene (
     status      TEXT NOT NULL DEFAULT 'complete',
     deleted_at  TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL,
-    UNIQUE (task_id, version)
+    UNIQUE (task_id, name, version)
 );
 
 CREATE TABLE IF NOT EXISTS publish (
@@ -223,7 +224,33 @@ class ProjectDB:
             self._add_missing_columns(conn, _V2_NEW_COLUMNS)
         if version < 3:
             self._add_missing_columns(conn, _V3_NEW_COLUMNS)
+        # v4 rebuilds the scene table: named scene streams, versioned per
+        # (task, name) — a UNIQUE constraint cannot be altered in place.
+        copy_scenes = False
+        if version < 4:
+            tables = {
+                row["name"]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            if "scene" in tables:
+                columns = {
+                    row["name"]
+                    for row in conn.execute("PRAGMA table_info(scene)").fetchall()
+                }
+                if "name" not in columns:
+                    conn.execute("ALTER TABLE scene RENAME TO scene_v3")
+                    copy_scenes = True
         conn.executescript(SCHEMA)
+        if copy_scenes:
+            conn.execute(
+                "INSERT INTO scene (id, task_id, name, version, file, notes,"
+                " user, status, deleted_at, created_at)"
+                " SELECT id, task_id, 'main', version, file, notes, user,"
+                " status, deleted_at, created_at FROM scene_v3"
+            )
+            conn.execute("DROP TABLE scene_v3")
         conn.execute("PRAGMA user_version = %d" % SCHEMA_VERSION)
 
     @staticmethod
@@ -344,30 +371,33 @@ class ProjectDB:
 
     # -- scenes ----------------------------------------------------------
 
-    def next_scene_version(self, task_id):
-        """Peek at the next version (claims may still move it forward)."""
+    def next_scene_version(self, task_id, name="main"):
+        """Peek at the next version of one named scene stream."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT MAX(version) AS latest FROM scene WHERE task_id = ?",
-                (task_id,),
+                "SELECT MAX(version) AS latest FROM scene"
+                " WHERE task_id = ? AND name = ?",
+                (task_id, name),
             ).fetchone()
             return (row["latest"] or 0) + 1
 
-    def claim_scene_version(self, task_id, file_for_version, user=""):
-        """Atomically reserve the next scene version.
+    def claim_scene_version(self, task_id, file_for_version, user="",
+                            name="main"):
+        """Atomically reserve the next version of a named scene stream.
 
         ``file_for_version`` is a callable version -> relative file path.
-        The UNIQUE(task_id, version) constraint is the lock: whoever inserts
-        first owns the number; everyone else moves to the next one.
+        The UNIQUE(task_id, name, version) constraint is the lock: whoever
+        inserts first owns the number; everyone else moves to the next one.
         """
         for _ in range(50):
-            version = self.next_scene_version(task_id)
+            version = self.next_scene_version(task_id, name)
             try:
                 with self._connect() as conn:
                     conn.execute(
-                        "INSERT INTO scene (id, task_id, version, file, user,"
-                        " status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
-                        (str(uuid.uuid4()), task_id, version,
+                        "INSERT INTO scene (id, task_id, name, version, file,"
+                        " user, status, created_at)"
+                        " VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+                        (str(uuid.uuid4()), task_id, name, version,
                          file_for_version(version), user, utc_now()),
                     )
                 return version
@@ -375,48 +405,50 @@ class ProjectDB:
                 continue
         raise RuntimeError("could not claim a scene version (database contention)")
 
-    def complete_scene(self, task_id, version, notes="", user=""):
+    def complete_scene(self, task_id, version, notes="", user="", name="main"):
         with self._connect() as conn:
             conn.execute(
                 "UPDATE scene SET status = 'complete', notes = ?, user = ?,"
-                " created_at = ? WHERE task_id = ? AND version = ?",
-                (notes or "", user or "", utc_now(), task_id, int(version)),
+                " created_at = ? WHERE task_id = ? AND name = ? AND version = ?",
+                (notes or "", user or "", utc_now(), task_id, name,
+                 int(version)),
             )
 
-    def release_scene(self, task_id, version):
+    def release_scene(self, task_id, version, name="main"):
         """Drop a claim whose save never happened."""
         with self._connect() as conn:
             conn.execute(
-                "DELETE FROM scene WHERE task_id = ? AND version = ?"
-                " AND status = 'pending'",
-                (task_id, int(version)),
+                "DELETE FROM scene WHERE task_id = ? AND name = ?"
+                " AND version = ? AND status = 'pending'",
+                (task_id, name, int(version)),
             )
 
     def list_scenes(self, task_id):
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM scene WHERE task_id = ? AND status = 'complete'"
-                " AND deleted_at = '' ORDER BY version DESC",
+                " AND deleted_at = '' ORDER BY name ASC, version DESC",
                 (task_id,),
             ).fetchall()
             return [dict(row) for row in rows]
 
-    def claimed_scene_file(self, task_id, version):
+    def claimed_scene_file(self, task_id, version, name="main"):
         """File recorded at claim time, any status — the claim knows the
         real extension (.hip / .hiplc / .hipnc)."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT file FROM scene WHERE task_id = ? AND version = ?",
-                (task_id, int(version)),
+                "SELECT file FROM scene WHERE task_id = ? AND name = ?"
+                " AND version = ?",
+                (task_id, name, int(version)),
             ).fetchone()
             return row["file"] if row else ""
 
-    def get_scene(self, task_id, version):
+    def get_scene(self, task_id, version, name="main"):
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM scene WHERE task_id = ? AND version = ?"
-                " AND status = 'complete' AND deleted_at = ''",
-                (task_id, int(version)),
+                "SELECT * FROM scene WHERE task_id = ? AND name = ?"
+                " AND version = ? AND status = 'complete' AND deleted_at = ''",
+                (task_id, name, int(version)),
             ).fetchone()
             return dict(row) if row else None
 
@@ -571,11 +603,12 @@ class ProjectDB:
 
     # -- edits & soft deletion ------------------------------------------
 
-    def update_scene_notes(self, task_id, version, notes):
+    def update_scene_notes(self, task_id, version, notes, name="main"):
         with self._connect() as conn:
             conn.execute(
-                "UPDATE scene SET notes = ? WHERE task_id = ? AND version = ?",
-                (notes or "", task_id, int(version)),
+                "UPDATE scene SET notes = ? WHERE task_id = ? AND name = ?"
+                " AND version = ?",
+                (notes or "", task_id, name, int(version)),
             )
 
     def update_publish_comment(self, task_id, format_name, version, comment):
@@ -586,8 +619,8 @@ class ProjectDB:
                 (comment or "", task_id, format_name, int(version)),
             )
 
-    def delete_scene(self, task_id, version):
-        row = self.get_scene(task_id, version)
+    def delete_scene(self, task_id, version, name="main"):
+        row = self.get_scene(task_id, version, name)
         if row is None:
             raise ValueError("no scene v%03d on that task" % int(version))
         with self._connect() as conn:

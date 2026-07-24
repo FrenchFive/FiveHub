@@ -218,10 +218,11 @@ class Project:
             self.task_dir(kind, entity, task), config.PUBLISH_DIR, format_name
         )
 
-    def scene_path(self, kind, entity, task, version, extension=None):
+    def scene_path(self, kind, entity, task, version, extension=None,
+                   name="main"):
         return os.path.join(
             self.scenes_dir(kind, entity, task),
-            config.scene_file_name(entity, task, version, extension),
+            config.scene_file_name(entity, task, version, extension, name),
         )
 
     # -- entities & tasks ------------------------------------------------
@@ -293,36 +294,45 @@ class Project:
 
     # -- scenes (claim -> write -> complete) -----------------------------
 
-    def next_scene_version(self, kind, entity, task):
+    def next_scene_version(self, kind, entity, task, name="main"):
         """Peek only — the real number is fixed by claim_scene."""
-        return self.db.next_scene_version(self._task_record(kind, entity, task)["id"])
+        return self.db.next_scene_version(
+            self._task_record(kind, entity, task)["id"], name
+        )
 
-    def claim_scene(self, kind, entity, task, user="", extension=None):
-        """Reserve the next scene version; returns (absolute path, version).
+    def claim_scene(self, kind, entity, task, user="", extension=None,
+                    name="main"):
+        """Reserve the next version of a named scene stream; returns
+        (absolute path, version).
 
         The claim guarantees no other artist gets the same version — write
         the file at the returned path, then call complete_scene (or
         release_scene if the save failed). ``extension`` follows the DCC's
         license (.hip / .hiplc / .hipnc) so the claimed path is the file
-        Houdini will actually write."""
+        Houdini will actually write. ``name`` separates parallel scene
+        streams on one task (e.g. several fx setups on a shot)."""
         task_record = self._task_record(kind, entity, task)
         version = self.db.claim_scene_version(
             task_record["id"],
-            lambda v: self.rel(self.scene_path(kind, entity, task, v, extension)),
+            lambda v: self.rel(
+                self.scene_path(kind, entity, task, v, extension, name)
+            ),
             user=user,
+            name=name,
         )
-        path = self.scene_path(kind, entity, task, version, extension)
+        path = self.scene_path(kind, entity, task, version, extension, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         return path, version
 
-    def complete_scene(self, kind, entity, task, version, notes="", user=""):
+    def complete_scene(self, kind, entity, task, version, notes="", user="",
+                       name="main"):
         task_id = self._task_record(kind, entity, task)["id"]
         # The claim recorded the real file (extension included) — check that.
-        claimed = self.db.claimed_scene_file(task_id, version)
+        claimed = self.db.claimed_scene_file(task_id, version, name)
         path = (
             self.absolute(claimed)
             if claimed
-            else self.scene_path(kind, entity, task, version)
+            else self.scene_path(kind, entity, task, version, name=name)
         )
         if not os.path.isfile(path):
             raise ValueError("scene file was not written: %s" % path)
@@ -330,33 +340,33 @@ class Project:
             from .user import get_user
 
             user = get_user()
-        task_record = self._task_record(kind, entity, task)
-        self.db.complete_scene(task_record["id"], version, notes, user)
-        row = self.db.get_scene(task_record["id"], version)
+        self.db.complete_scene(task_id, version, notes, user, name)
+        row = self.db.get_scene(task_id, version, name)
         if row:
             self._record("scene", row["id"])
         self._autocommit(
-            "scene v%03d %s/%s — %s" % (int(version), entity, task, user)
+            "scene %s v%03d %s/%s — %s" % (name, int(version), entity, task, user)
         )
         return path
 
-    def release_scene(self, kind, entity, task, version):
+    def release_scene(self, kind, entity, task, version, name="main"):
         task_record = self._task_record(kind, entity, task)
-        self.db.release_scene(task_record["id"], version)
+        self.db.release_scene(task_record["id"], version, name)
 
-    def register_scene(self, kind, entity, task, notes="", user="", writer=None):
+    def register_scene(self, kind, entity, task, notes="", user="", writer=None,
+                       name="main"):
         """Convenience for tests/scripts: claim, write via ``writer(path)``
         (default: empty file), complete. Returns (path, version)."""
-        path, version = self.claim_scene(kind, entity, task, user)
+        path, version = self.claim_scene(kind, entity, task, user, name=name)
         try:
             if writer is not None:
                 writer(path)
             elif not os.path.isfile(path):
                 with open(path, "w", encoding="utf-8") as handle:
                     handle.write("")
-            self.complete_scene(kind, entity, task, version, notes, user)
+            self.complete_scene(kind, entity, task, version, notes, user, name)
         except Exception:
-            self.release_scene(kind, entity, task, version)
+            self.release_scene(kind, entity, task, version, name)
             raise
         return path, version
 
@@ -364,8 +374,10 @@ class Project:
         rows = self.db.list_scenes(self._task_record(kind, entity, task)["id"])
         return [self._abs_row(row) for row in rows]
 
-    def get_scene(self, kind, entity, task, version):
-        row = self.db.get_scene(self._task_record(kind, entity, task)["id"], version)
+    def get_scene(self, kind, entity, task, version, name="main"):
+        row = self.db.get_scene(
+            self._task_record(kind, entity, task)["id"], version, name
+        )
         return self._abs_row(row) if row else None
 
     # -- publishes -------------------------------------------------------
@@ -499,10 +511,10 @@ class Project:
                 removed.append(entry)
         return removed
 
-    def set_scene_notes(self, kind, entity, task, version, notes):
+    def set_scene_notes(self, kind, entity, task, version, notes, name="main"):
         task_record = self._task_record(kind, entity, task)
-        self.db.update_scene_notes(task_record["id"], version, notes)
-        row = self.db.get_scene(task_record["id"], version)
+        self.db.update_scene_notes(task_record["id"], version, notes, name)
+        row = self.db.get_scene(task_record["id"], version, name)
         if row:
             self._record("scene", row["id"])
 
@@ -513,12 +525,13 @@ class Project:
         if row:
             self._record("publish", row["id"])
 
-    def delete_scene(self, kind, entity, task, version):
+    def delete_scene(self, kind, entity, task, version, name="main"):
         task_record = self._task_record(kind, entity, task)
-        row = self.db.delete_scene(task_record["id"], version)
+        row = self.db.delete_scene(task_record["id"], version, name)
         self._record("scene", row["id"])
         row = self._abs_row(dict(row))
-        self._trash(row.get("file", ""), "%s_%s_scene_v%03d" % (entity, task, version))
+        self._trash(row.get("file", ""),
+                    "%s_%s_%s_v%03d" % (entity, task, name, version))
         self._autocommit("remove scene v%03d %s/%s" % (int(version), entity, task))
         return row
 
@@ -830,5 +843,6 @@ def parse_scene_path(path, hub_root=None):
             "entity": parts[1],
             "task": parts[2],
             "file": parts[4],
+            "scene_name": config.scene_name_from_file(parts[4], parts[1], parts[2]),
         }
     return None
