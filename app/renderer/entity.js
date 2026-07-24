@@ -7,7 +7,7 @@ let entityData = null;
 
 document.title = `FIVEHUB — ${entityName}`;
 const backBtn = document.getElementById("back");
-backBtn.textContent = "‹ " + (projectName || "PROJECT").toUpperCase();
+setButtonLabel(backBtn, "chevron-left", (projectName || "PROJECT").toUpperCase());
 backBtn.addEventListener("click", () => go("project.html", { name: projectName }));
 document.getElementById("context-label").textContent = `${projectName} · ${kind}`;
 
@@ -33,7 +33,9 @@ function taskRow(task) {
   const status = el("span", "task-status");
   if (task.publish_count) {
     // Published badge + when the task last shipped anything, any name.
-    status.appendChild(el("span", "pub-badge", "✓"));
+    const badge = el("span", "pub-badge");
+    badge.appendChild(icon("check"));
+    status.appendChild(badge);
     status.appendChild(
       el("span", "meta", "PUBLISHED " + shortDate(task.last_publish_at || "")),
     );

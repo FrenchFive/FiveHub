@@ -27,7 +27,9 @@ async function ensureLogin() {
     await window.fivehub.login(values.name);
     name = values.name;
   }
-  userPill.textContent = name;
+  clear(userPill);
+  userPill.appendChild(icon("user"));
+  userPill.appendChild(el("span", null, name));
   userPill.classList.remove("hidden");
 }
 
@@ -257,7 +259,7 @@ updateBtn.addEventListener("click", async () => {
     },
   });
   if (!ok) return;
-  updateBtn.textContent = "UPDATING…";
+  setButtonLabel(updateBtn, "download", "UPDATING…");
   await runUpdate();
   checkForUpdate();
 });
@@ -330,12 +332,12 @@ async function checkForUpdate() {
   try {
     const { update, dismissed } = await window.fivehub.updateCheck();
     if (update && update.update_available) {
-      updateBtn.textContent = "UPDATE — v" + update.remote;
+      setButtonLabel(updateBtn, "download", "UPDATE — v" + update.remote);
       updateBtn.classList.remove("hidden");
       if (!dismissed) offerUpdate(update);
     } else {
       updateBtn.classList.add("hidden");
-      updateBtn.textContent = "";
+      clear(updateBtn);
       dismissUpdatePopup();
     }
   } catch {
