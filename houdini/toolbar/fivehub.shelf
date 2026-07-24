@@ -22,7 +22,7 @@ fivehub_houdini.increment_save()]]></script>
   </tool>
 
   <tool name="fivehub_publish" label="PUBLISH" icon="SOP_output">
-    <helpText><![CDATA[Validate the selection and publish it to the current task (USD component by default).]]></helpText>
+    <helpText><![CDATA[Publish through a PUBLISH node: select one to rerun it, or select a SOP to create the node and publish. Every publish is owned by a node — visible and reproducible.]]></helpText>
     <script scriptType="python"><![CDATA[import os, sys
 root = hou.text.expandString("$FIVEHUB")
 for p in (root, os.path.join(root, "houdini")):
