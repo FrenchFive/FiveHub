@@ -168,16 +168,16 @@ ipcMain.handle("hub:entityDelete", (_event, project, kind, name) =>
 ipcMain.handle("hub:taskDelete", (_event, context) =>
   runCli(["task-delete", context.project, context.kind, context.entity, context.task]),
 );
-ipcMain.handle("hub:sceneDelete", (_event, context, version) =>
+ipcMain.handle("hub:sceneDelete", (_event, context, version, name) =>
   runCli([
     "scene-delete", context.project, context.kind, context.entity, context.task,
-    String(version),
+    String(version), "--name", name || "main",
   ]),
 );
-ipcMain.handle("hub:sceneNotes", (_event, context, version, notes) =>
+ipcMain.handle("hub:sceneNotes", (_event, context, version, notes, name) =>
   runCli([
     "scene-notes", context.project, context.kind, context.entity, context.task,
-    String(version), "--notes", notes || "",
+    String(version), "--notes", notes || "", "--name", name || "main",
   ]),
 );
 ipcMain.handle("hub:publishDelete", (_event, context, format, version) =>

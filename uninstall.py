@@ -71,6 +71,10 @@ def remove_houdini_packages():
         if os.path.isfile(package) and _remove_file(package):
             removed += 1
             step("Houdini package", True, "removed " + package)
+        try:
+            houdini_install.update_houdini_env(prefs, remove=True)
+        except OSError:
+            pass
     if not removed:
         step("Houdini package", False, "none installed")
 

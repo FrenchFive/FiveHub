@@ -286,6 +286,14 @@ class SaveSceneDialog(_BaseDialog):
         self.context_widget = ContextWidget(editable=True)
         self.layout_.addWidget(self.context_widget)
 
+        # Scene name: several fx setups on one shot save as separate named
+        # streams, each versioned on its own. Editable combo — pick an
+        # existing name (no mistype) or type a new one.
+        self.layout_.addWidget(_label("SCENE NAME", "hint"))
+        self.scene_combo = QtWidgets.QComboBox()
+        self.scene_combo.setEditable(True)
+        self.layout_.addWidget(self.scene_combo)
+
         self.layout_.addWidget(_label("NOTES", "hint"))
         self.notes = QtWidgets.QPlainTextEdit()
         self.notes.setFixedHeight(80)
@@ -295,20 +303,51 @@ class SaveSceneDialog(_BaseDialog):
         self.layout_.addWidget(self.target_label)
 
         self.add_buttons("SAVE")
-        self.context_widget.changed.connect(self._update_target)
+        self.context_widget.changed.connect(self._refresh_scene_names)
+        self.scene_combo.currentTextChanged.connect(
+            lambda _t: self._update_target())
         self.context_widget.set_context(prefill)
+        self._prefill_name = (prefill or {}).get("scene_name", "")
+        self._refresh_scene_names()
+
+    def _refresh_scene_names(self):
+        context = self.context_widget.context()
+        current = self.scene_combo.currentText() or self._prefill_name
+        self._prefill_name = ""
+        existing = []
+        try:
+            project = get_project(context["project"])
+            existing = sorted({
+                scene["name"]
+                for scene in project.scenes(
+                    context["kind"], context["entity"], context["task"])
+            })
+        except ValueError:
+            pass
+        self.scene_combo.blockSignals(True)
+        self.scene_combo.clear()
+        self.scene_combo.addItems(existing or ["main"])
+        if current:
+            self.scene_combo.setEditText(current)
+        elif "main" in (existing or ["main"]):
+            self.scene_combo.setEditText("main")
+        self.scene_combo.blockSignals(False)
         self._update_target()
+
+    def _scene_name(self):
+        return (self.scene_combo.currentText().strip() or "main")
 
     def _update_target(self):
         context = self.context_widget.context()
         if not (context["project"] and context["entity"] and context["task"]):
             self.target_label.setText("PICK A PROJECT / ENTITY / TASK")
             return
+        name = self._scene_name()
         version = 1
         try:
             project = get_project(context["project"])
             version = project.next_scene_version(
-                context["kind"], context["entity"], context["task"]
+                context["kind"], context["entity"], context["task"], name
             )
         except ValueError:
             pass  # entity or task does not exist yet -> first version
@@ -317,12 +356,14 @@ class SaveSceneDialog(_BaseDialog):
         self.target_label.setText(
             "WILL SAVE  %s"
             % config.scene_file_name(
-                context["entity"], context["task"], version, scene_extension()
+                context["entity"], context["task"], version,
+                scene_extension(), name,
             )
         )
 
     def values(self):
-        return self.context_widget.context(), self.notes.toPlainText().strip()
+        return (self.context_widget.context(),
+                self.notes.toPlainText().strip(), self._scene_name())
 
 
 class LoadSceneDialog(_BaseDialog):
@@ -355,7 +396,8 @@ class LoadSceneDialog(_BaseDialog):
         except ValueError:
             return
         for scene in scenes:
-            text = "%s   %s   %s" % (
+            text = "%s   %s   %s   %s" % (
+                scene.get("name", "main"),
                 config.version_label(scene["version"]),
                 scene["user"] or "-",
                 (scene["created_at"] or "").replace("T", " ").rstrip("Z"),
